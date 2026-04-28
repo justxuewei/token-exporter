@@ -18,7 +18,7 @@ A Prometheus exporter that watches Claude Code, AntCC, and Codex JSONL conversat
 make
 make push
 
-# Run locally
+# Run locally (Node.js + ccusage tools are pre-installed in the image)
 docker run -d \
   --name token-exporter \
   --net host \
@@ -26,8 +26,14 @@ docker run -d \
   -v ~/.codefuse:/root/.codefuse:ro \
   -v ~/.codex:/root/.codex:ro \
   -e SOURCE=devhome \
+  -e CC_PLAN=claude-max-5x \
+  -e CC_BLOCK_LIMIT_TOKENS=440000 \
+  -e CC_WEEK_LIMIT_TOKENS=2000000 \
   xavierniu/token-exporter:latest
 ```
+
+> **Node.js & ccusage**: The Docker image ships with Node.js LTS and globally installs `ccusage` and `@ccusage/codex`, so `CCUSAGE_BIN=ccusage` works out of the box.
+> When running outside Docker, set `CCUSAGE_BIN=npx ccusage@latest` instead.
 
 ## Configuration
 
@@ -38,8 +44,8 @@ docker run -d \
 | `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codex` | Comma-separated config directories |
 | `DAYS_BACK` | `7` | Days of history to scan on startup |
 | `SOURCE` | `""` | Source label for multi-machine setups |
-| `CCUSAGE_BIN` | `""` | Path/command for `ccusage` CLI (e.g. `npx ccusage@latest`). Enables CC rate-limit block metrics when set. |
-| `CCUSAGE_CODEX_BIN` | `""` | Path/command for `@ccusage/codex` CLI (e.g. `npx @ccusage/codex@latest`). Enables Codex rate-limit metrics when set. |
+| `CCUSAGE_BIN` | `ccusage` (Docker) | Path/command for `ccusage` CLI. In Docker the binary is pre-installed; outside Docker use `npx ccusage@latest`. |
+| `CCUSAGE_CODEX_BIN` | `npx @ccusage/codex` (Docker) | Path/command for `@ccusage/codex` CLI. Outside Docker use `npx @ccusage/codex@latest`. |
 | `CC_PLAN` | `""` | CC plan name displayed in the dashboard (e.g. `claude-max-5x`). Leave empty to hide. |
 | `CC_BLOCK_LIMIT_TOKENS` | `0` | Per-5h block token limit for CC. Shown as progress-bar max. 0 = not configured. |
 | `CC_WEEK_LIMIT_TOKENS` | `0` | Weekly token limit for CC. Shown as progress-bar max. 0 = not configured. |
@@ -97,12 +103,12 @@ When the tools are **not configured** (`CCUSAGE_BIN` / `CCUSAGE_CODEX_BIN` empty
 
 Import `grafana/dashboards/token-stats.json` or use the included provisioning. The dashboard includes:
 
-- **Token Usage** — stacked timeseries of input/output/cache read/cache creation rates
-- **Cache Hit Rate** — `cache_read / (cache_read + input)` over time
-- **Summary stats** — total tokens, input, output, cache, and cache hit rate for the selected time range
+- **Overview** — aggregated stats (total / input / output / cache / hit rate) and combined timeseries across all agents
+- **CC Token Usage** row — token usage and cache hit rate timeseries filtered to CC agents (`claude-code`, `antcc`)
+- **Codex Token Usage** row — token usage and cache hit rate timeseries filtered to the `codex` agent
 - **CC Rate Limits** row — 5h block usage %, block reset countdown, current plan, week usage %, week reset countdown
 - **Codex Rate Limits** row — daily block usage %, block reset countdown, current plan, week usage %, week reset countdown
-- Filterable by **source** and **agent**
+- Filterable by **source** (the `$agent` variable has been removed; use the dedicated per-agent rows instead)
 
 ## Docker Compose
 
