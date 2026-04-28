@@ -13,7 +13,7 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
-        "colorMode": "background_solid",
+        "colorMode": "value",
         "orientation": "horizontal"
       },
       "targets": [
@@ -35,7 +35,7 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
-        "colorMode": "background_solid",
+        "colorMode": "value",
         "orientation": "horizontal"
       },
       "targets": [
@@ -57,7 +57,7 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
-        "colorMode": "background_solid",
+        "colorMode": "value",
         "orientation": "horizontal"
       },
       "targets": [
@@ -79,7 +79,7 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
-        "colorMode": "background_solid",
+        "colorMode": "value",
         "orientation": "horizontal"
       },
       "targets": [
@@ -101,7 +101,7 @@
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
-        "colorMode": "background_solid",
+        "colorMode": "value",
         "orientation": "horizontal"
       },
       "targets": [
@@ -223,7 +223,7 @@
       },
       "targets": [
         {
-          "expr": "sort_desc(sum by (model) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])))",
+          "expr": "sort_desc(sum by (model) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) > 0)",
           "legendFormat": "{{model}}",
           "refId": "A"
         }
@@ -249,7 +249,7 @@
       },
       "targets": [
         {
-          "expr": "sort_desc(sum by (project) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])))",
+          "expr": "sort_desc(sum by (project) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) > 0)",
           "legendFormat": "{{project}}",
           "refId": "A"
         }
