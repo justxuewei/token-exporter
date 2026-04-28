@@ -11,8 +11,8 @@ SESSIONS_DIR = "sessions"
 GLOB_PATTERN = "**/*.jsonl"
 
 
-def find_jsonl_files(claude_dirs: list[str]) -> dict[str, str]:
-    """Find all JSONL files and return {filepath: agent_name}."""
+def find_jsonl_files(claude_dirs: list[str]) -> dict[str, tuple[str, str]]:
+    """Find all JSONL files and return {filepath: (agent_name, project)}."""
     files = {}
     for base_dir in claude_dirs:
         agent = _detect_agent(base_dir)
@@ -20,13 +20,33 @@ def find_jsonl_files(claude_dirs: list[str]) -> dict[str, str]:
         projects_dir = os.path.join(base_dir, PROJECTS_DIR)
         if os.path.isdir(projects_dir):
             for p in Path(projects_dir).rglob("*.jsonl"):
-                files[str(p)] = agent
+                project = _extract_project(str(p), projects_dir)
+                files[str(p)] = (agent, project)
         # Codex: sessions/ directory
         sessions_dir = os.path.join(base_dir, SESSIONS_DIR)
         if os.path.isdir(sessions_dir):
             for p in Path(sessions_dir).rglob("*.jsonl"):
-                files[str(p)] = "codex"
+                files[str(p)] = ("codex", "unknown")
     return files
+
+
+def _extract_project(filepath: str, projects_dir: str) -> str:
+    """Extract project name from a Claude Code / AntCC JSONL file path.
+
+    The directory under projects/ encodes the working directory with dashes
+    replacing slashes, e.g. '-home-nxw-developer-token-exporter'.
+    The encoded path is /home/<user>/<rest>... so we strip the first 3
+    segments (home, user, developer) and the remainder is the project name.
+    """
+    rel = os.path.relpath(filepath, projects_dir)
+    project_dir = rel.split(os.sep)[0]
+    # Strip leading dash
+    stripped = project_dir.lstrip("-")
+    parts = stripped.split("-")
+    # /home/<user>/<project...> → skip home(0), user(1), developer(2)
+    if len(parts) >= 3:
+        return "-".join(parts[3:]) or stripped
+    return stripped
 
 
 def _detect_agent(base_dir: str) -> str:
@@ -101,9 +121,13 @@ def parse_codex_line(line: str) -> dict | None:
     if entry_type == "turn_context":
         payload = obj.get("payload", {})
         model = payload.get("model")
+        cwd = payload.get("cwd")
+        result = {"_type": "model"}
         if model:
-            return {"_type": "model", "model": model}
-        return None
+            result["model"] = model
+        if cwd:
+            result["cwd"] = cwd
+        return result if (model or cwd) else None
 
     if entry_type == "event_msg":
         payload = obj.get("payload", {})
@@ -158,8 +182,8 @@ class JSONLWatcher:
         files = find_jsonl_files(self.claude_dirs)
         logger.info("Scanning %d JSONL files for history...", len(files))
         count = 0
-        for filepath, agent in files.items():
-            pos, n = self._read_file(filepath, agent, cutoff)
+        for filepath, (agent, project) in files.items():
+            pos, n = self._read_file(filepath, agent, project, cutoff)
             self._file_positions[filepath] = pos
             count += n
         logger.info("Scanned %d historical records", count)
@@ -168,10 +192,10 @@ class JSONLWatcher:
         """Check for new lines in known files and any new files."""
         files = find_jsonl_files(self.claude_dirs)
 
-        for filepath, agent in files.items():
+        for filepath, (agent, project) in files.items():
             if filepath not in self._file_positions:
                 self._file_positions[filepath] = 0
-            pos, _ = self._read_file(filepath, agent, None)
+            pos, _ = self._read_file(filepath, agent, project, None)
             self._file_positions[filepath] = pos
 
         # Clean up deleted files
@@ -180,14 +204,14 @@ class JSONLWatcher:
             del self._file_positions[f]
             self._codex_state.pop(f, None)
 
-    def _read_file(self, filepath: str, agent: str, cutoff: datetime | None) -> tuple[int, int]:
+    def _read_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read new lines from a file starting from tracked position.
         Returns (new_position, record_count)."""
         if agent == "codex":
-            return self._read_codex_file(filepath, cutoff)
-        return self._read_claude_file(filepath, agent, cutoff)
+            return self._read_codex_file(filepath, project, cutoff)
+        return self._read_claude_file(filepath, agent, project, cutoff)
 
-    def _read_claude_file(self, filepath: str, agent: str, cutoff: datetime | None) -> tuple[int, int]:
+    def _read_claude_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read Claude Code / AntCC JSONL file."""
         count = 0
         try:
@@ -216,6 +240,7 @@ class JSONLWatcher:
                             continue
                         self._seen_keys.add(record["dedup_key"])
 
+                    record["project"] = project
                     if self.on_record:
                         self.on_record(agent, record)
                     count += 1
@@ -224,7 +249,7 @@ class JSONLWatcher:
             logger.error("Error reading %s: %s", filepath, e)
             return start_pos, 0
 
-    def _read_codex_file(self, filepath: str, cutoff: datetime | None) -> tuple[int, int]:
+    def _read_codex_file(self, filepath: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read Codex JSONL file with cumulative counter delta computation."""
         count = 0
         try:
@@ -241,6 +266,7 @@ class JSONLWatcher:
 
         state = self._codex_state.get(filepath, {
             "model": "unknown",
+            "project": "unknown",
             "prev_totals": None,
         })
 
@@ -253,7 +279,10 @@ class JSONLWatcher:
                         continue
 
                     if parsed["_type"] == "model":
-                        state["model"] = parsed["model"]
+                        if "model" in parsed:
+                            state["model"] = parsed["model"]
+                        if "cwd" in parsed:
+                            state["project"] = os.path.basename(parsed["cwd"])
                         continue
 
                     model = parsed["model"] or state["model"]
@@ -303,6 +332,7 @@ class JSONLWatcher:
                     record = {
                         "timestamp": parsed["timestamp"],
                         "model": model,
+                        "project": state["project"],
                         "input_tokens": max(delta_input - delta_cached, 0),
                         "output_tokens": max(delta_output, 0) + max(delta_reasoning, 0),
                         "cache_creation_tokens": 0,

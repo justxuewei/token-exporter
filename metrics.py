@@ -6,8 +6,8 @@ from prometheus_client import Counter, Gauge
 
 logger = logging.getLogger("token-stats")
 
-LABELS = ["source", "agent", "model"]
-DAILY_LABELS = ["source", "agent", "model", "date"]
+LABELS = ["source", "agent", "project", "model"]
+DAILY_LABELS = ["source", "agent", "project", "model", "date"]
 
 input_tokens_total = Counter("codeagent_input_tokens_total", "Total input tokens", LABELS)
 output_tokens_total = Counter("codeagent_output_tokens_total", "Total output tokens", LABELS)
@@ -33,20 +33,21 @@ def set_source(source: str):
 
 def record_usage(agent: str, rec: dict):
     model = rec["model"]
+    project = rec.get("project", "unknown")
     src = _source
-    input_tokens_total.labels(source=src, agent=agent, model=model).inc(rec["input_tokens"])
-    output_tokens_total.labels(source=src, agent=agent, model=model).inc(rec["output_tokens"])
+    input_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["input_tokens"])
+    output_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["output_tokens"])
     if rec["cache_creation_tokens"] > 0:
-        cache_creation_tokens_total.labels(source=src, agent=agent, model=model).inc(rec["cache_creation_tokens"])
+        cache_creation_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cache_creation_tokens"])
     if rec["cache_read_tokens"] > 0:
-        cache_read_tokens_total.labels(source=src, agent=agent, model=model).inc(rec["cache_read_tokens"])
+        cache_read_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cache_read_tokens"])
     if rec["cost_usd"] > 0:
-        cost_usd_total.labels(source=src, agent=agent, model=model).inc(rec["cost_usd"])
+        cost_usd_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cost_usd"])
 
     # Accumulate daily gauge data
     ts = rec.get("timestamp")
     date_str = ts.strftime("%Y-%m-%d") if ts else "unknown"
-    key = (src, agent, model, date_str)
+    key = (src, agent, project, model, date_str)
     d = _daily_data[key]
     d["input"] += rec["input_tokens"]
     d["output"] += rec["output_tokens"]
@@ -55,8 +56,8 @@ def record_usage(agent: str, rec: dict):
     d["cost"] += rec["cost_usd"]
 
     # Update daily gauges
-    daily_input_tokens.labels(source=src, agent=agent, model=model, date=date_str).set(d["input"])
-    daily_output_tokens.labels(source=src, agent=agent, model=model, date=date_str).set(d["output"])
-    daily_cache_creation_tokens.labels(source=src, agent=agent, model=model, date=date_str).set(d["cache_creation"])
-    daily_cache_read_tokens.labels(source=src, agent=agent, model=model, date=date_str).set(d["cache_read"])
-    daily_cost_usd.labels(source=src, agent=agent, model=model, date=date_str).set(d["cost"])
+    daily_input_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["input"])
+    daily_output_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["output"])
+    daily_cache_creation_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cache_creation"])
+    daily_cache_read_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cache_read"])
+    daily_cost_usd.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cost"])

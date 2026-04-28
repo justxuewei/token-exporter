@@ -210,6 +210,58 @@
         },
         "overrides": []
       }
+    },
+    {
+      "title": "Tokens by Model",
+      "type": "piechart",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right", "showLegend": true, "values": ["percent"], "hideZero": true, "hideEmpty": true },
+        "tooltip": { "mode": "multi", "sort": "desc", "showPercent": true },
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "pieType": "donut"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (model) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])))",
+          "legendFormat": "{{model}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Tokens by Project",
+      "type": "piechart",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 12 },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "right", "showLegend": true, "values": ["percent"], "hideZero": true, "hideEmpty": true },
+        "tooltip": { "mode": "multi", "sort": "desc", "showPercent": true },
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "pieType": "donut"
+      },
+      "targets": [
+        {
+          "expr": "sort_desc(sum by (project) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])))",
+          "legendFormat": "{{project}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
     }
   ],
   "schemaVersion": 39,
