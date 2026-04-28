@@ -296,10 +296,14 @@ class JSONLWatcher:
                     if delta_input <= 0 and delta_output <= 0 and delta_cached <= 0 and delta_reasoning <= 0:
                         continue
 
+                    # Codex input_tokens includes cached_input_tokens, so
+                    # subtract cached to get the non-cached (full-price) portion.
+                    # This makes input_tokens and cache_read_tokens disjoint,
+                    # matching Claude Code/AntCC semantics.
                     record = {
                         "timestamp": parsed["timestamp"],
                         "model": model,
-                        "input_tokens": max(delta_input, 0),
+                        "input_tokens": max(delta_input - delta_cached, 0),
                         "output_tokens": max(delta_output, 0) + max(delta_reasoning, 0),
                         "cache_creation_tokens": 0,
                         "cache_read_tokens": max(delta_cached, 0),
