@@ -12,4 +12,6 @@ def load_config():
         "claude_dirs": paths,
         "days_back": int(os.environ.get("DAYS_BACK", "7")),
         "source": os.environ.get("SOURCE", ""),
+        "ccusage_bin": os.environ.get("CCUSAGE_BIN", ""),
+        "ccusage_codex_bin": os.environ.get("CCUSAGE_CODEX_BIN", ""),
     }

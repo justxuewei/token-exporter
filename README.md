@@ -38,6 +38,8 @@ docker run -d \
 | `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codex` | Comma-separated config directories |
 | `DAYS_BACK` | `7` | Days of history to scan on startup |
 | `SOURCE` | `""` | Source label for multi-machine setups |
+| `CCUSAGE_BIN` | `""` | Path/command for `ccusage` CLI (e.g. `npx ccusage@latest`). Enables CC rate-limit block metrics when set. |
+| `CCUSAGE_CODEX_BIN` | `""` | Path/command for `@ccusage/codex` CLI (e.g. `npx @ccusage/codex@latest`). Enables Codex rate-limit metrics when set. |
 
 ## Metrics
 
@@ -53,6 +55,23 @@ docker run -d \
 | `codeagent_daily_cache_creation_tokens` | Gauge | source, agent, model, date |
 | `codeagent_daily_cache_read_tokens` | Gauge | source, agent, model, date |
 | `codeagent_daily_cost_usd` | Gauge | source, agent, model, date |
+
+## Rate-Limit / Billing-Block Metrics
+
+These metrics are populated when `CCUSAGE_BIN` or `CCUSAGE_CODEX_BIN` are configured.
+They expose the current 5-hour billing window (CC) or today's usage (Codex) for rate-limit monitoring.
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `codeagent_block_input_tokens` | Gauge | source, agent | Input tokens in the current billing block |
+| `codeagent_block_output_tokens` | Gauge | source, agent | Output tokens in the current billing block |
+| `codeagent_block_cache_creation_tokens` | Gauge | source, agent | Cache-creation tokens in the current billing block |
+| `codeagent_block_cache_read_tokens` | Gauge | source, agent | Cache-read tokens in the current billing block |
+| `codeagent_block_total_tokens` | Gauge | source, agent | Total tokens in the current billing block |
+| `codeagent_block_cost_usd` | Gauge | source, agent | Cost in USD in the current billing block |
+| `codeagent_block_burn_rate_tokens_per_minute` | Gauge | source, agent | Token burn rate (CC only, 0 for Codex) |
+| `codeagent_block_projected_total_tokens` | Gauge | source, agent | Projected total tokens for the block (CC only) |
+| `codeagent_block_is_active` | Gauge | source, agent | 1 if a billing block is currently active |
 
 ## Grafana Dashboard
 
