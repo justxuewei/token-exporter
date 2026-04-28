@@ -7,9 +7,15 @@
   "links": [],
   "panels": [
     {
+      "title": "Overview",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
       "title": "Total Tokens",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
@@ -18,7 +24,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0))",
+          "expr": "(sum(increase(codeagent_input_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_output_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\"}[$__range])) or vector(0))",
           "legendFormat": "Total Tokens",
           "refId": "A"
         }
@@ -31,7 +37,7 @@
     {
       "title": "Input Tokens",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
@@ -40,7 +46,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range]))",
+          "expr": "sum(increase(codeagent_input_tokens_total{source=~\"$source\"}[$__range]))",
           "legendFormat": "Input Tokens",
           "refId": "A"
         }
@@ -53,7 +59,7 @@
     {
       "title": "Output Tokens",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
@@ -62,7 +68,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range]))",
+          "expr": "sum(increase(codeagent_output_tokens_total{source=~\"$source\"}[$__range]))",
           "legendFormat": "Output Tokens",
           "refId": "A"
         }
@@ -75,7 +81,7 @@
     {
       "title": "Cache Tokens",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
@@ -84,7 +90,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0))",
+          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\"}[$__range])) or vector(0))",
           "legendFormat": "Cache Tokens",
           "refId": "A"
         }
@@ -97,7 +103,7 @@
     {
       "title": "Cache Hit Rate",
       "type": "stat",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 1 },
       "options": {
         "reduceOptions": { "calcs": ["lastNotNull"] },
         "textMode": "value",
@@ -106,7 +112,136 @@
       },
       "targets": [
         {
-          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) / clamp_min((sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__range])) or vector(0)), 1)",
+          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) / clamp_min((sum(increase(codeagent_input_tokens_total{source=~\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\"}[$__range])) or vector(0)), 1)",
+          "legendFormat": "Cache Hit Rate",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "decimals": 1, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "$agent",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 5 },
+      "collapsed": false,
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "panels": []
+    },
+    {
+      "title": "Total Tokens",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 0, "y": 6 },
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0))",
+          "legendFormat": "Total Tokens",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Input Tokens",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 5, "y": 6 },
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range]))",
+          "legendFormat": "Input Tokens",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Output Tokens",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 10, "y": 6 },
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range]))",
+          "legendFormat": "Output Tokens",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cache Tokens",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 5, "x": 15, "y": 6 },
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0))",
+          "legendFormat": "Cache Tokens",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "short", "decimals": 2, "color": { "mode": "fixed", "fixedColor": "green" } },
+        "overrides": []
+      }
+    },
+    {
+      "title": "Cache Hit Rate",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 6 },
+      "repeat": "agent",
+      "repeatDirection": "v",
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) / clamp_min((sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__range])) or vector(0)), 1)",
           "legendFormat": "Cache Hit Rate",
           "refId": "A"
         }
@@ -119,29 +254,31 @@
     {
       "title": "Token Usage",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 10 },
+      "repeat": "agent",
+      "repeatDirection": "v",
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
         "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "width": 250 }
       },
       "targets": [
         {
-          "expr": "sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval]))",
+          "expr": "sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval]))",
           "legendFormat": "Input",
           "refId": "A"
         },
         {
-          "expr": "sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval]))",
+          "expr": "sum(increase(codeagent_output_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval]))",
           "legendFormat": "Output",
           "refId": "B"
         },
         {
-          "expr": "sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval]))",
+          "expr": "sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval]))",
           "legendFormat": "Cache Read",
           "refId": "C"
         },
         {
-          "expr": "sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval]))",
+          "expr": "sum(increase(codeagent_cache_creation_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval]))",
           "legendFormat": "Cache Creation",
           "refId": "D"
         }
@@ -184,7 +321,9 @@
     {
       "title": "Cache Hit Rate",
       "type": "timeseries",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 10 },
+      "repeat": "agent",
+      "repeatDirection": "v",
       "options": {
         "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" },
         "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true, "width": 250 }
@@ -193,7 +332,7 @@
         {
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])) / clamp_min(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])) + sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])), 1) * clamp_max(floor(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval])) + sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=~\"$agent\"}[$__rate_interval]))), 1)",
+          "expr": "sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval])) / clamp_min(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval])) + sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval])), 1) * clamp_max(floor(sum(increase(codeagent_input_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval])) + sum(increase(codeagent_cache_read_tokens_total{source=~\"$source\", agent=\"$agent\"}[$__rate_interval]))), 1)",
           "format": "time_series",
           "instant": false,
           "legendFormat": "Hit Rate",
@@ -255,11 +394,11 @@
   "templating": {
     "list": [
       {
-        "current": { "selected": true, "text": "All", "value": "$__all" },
+        "current": {},
         "definition": "label_values(codeagent_input_tokens_total, source)",
         "hide": 0,
-        "includeAll": true,
-        "multi": true,
+        "includeAll": false,
+        "multi": false,
         "name": "source",
         "options": [],
         "query": "label_values(codeagent_input_tokens_total, source)",
@@ -271,8 +410,8 @@
       },
       {
         "current": { "selected": true, "text": "All", "value": "$__all" },
-        "definition": "label_values(codeagent_input_tokens_total, agent)",
-        "hide": 0,
+        "definition": "label_values(codeagent_input_tokens_total, source)",
+        "hide": 2,
         "includeAll": true,
         "multi": true,
         "name": "agent",
@@ -286,8 +425,12 @@
       }
     ]
   },
-  "time": { "from": "now-1h", "to": "now" },
-  "timepicker": {},
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+    "time_options": ["5m", "15m", "1h", "6h", "12h", "24h", "2d", "7d", "30d"]
+  },
   "timezone": "",
   "title": "Code Agent Token Stats",
   "uid": "token-stats",

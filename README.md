@@ -56,12 +56,16 @@ docker run -d \
 
 ## Grafana Dashboard
 
+![Dashboard Screenshot](docs/dashboard.png)
+
 Import `grafana/dashboards/token-stats.json` or use the included provisioning. The dashboard includes:
 
-- **Token Usage** — stacked timeseries of input/output/cache read/cache creation rates
-- **Cache Hit Rate** — `cache_read / (cache_read + input)` over time
-- **Summary stats** — total tokens, input, output, cache, and cache hit rate for the selected time range
-- Filterable by **source** and **agent**
+- **All Agents** — combined summary stats and per-agent timeseries
+- **Per-Agent Groups** — auto-generated sections for each agent (antcc, claude-code, codex) with:
+  - Summary stats: total, input, output, cache tokens, cache hit rate
+  - Token Usage chart — stacked timeseries of input/output/cache read/cache creation
+  - Cache Hit Rate chart — `cache_read / (cache_read + input)` over time
+- Filterable by **source**
 
 ## Docker Compose
 
