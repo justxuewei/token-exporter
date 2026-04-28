@@ -14,4 +14,11 @@ def load_config():
         "source": os.environ.get("SOURCE", ""),
         "ccusage_bin": os.environ.get("CCUSAGE_BIN", ""),
         "ccusage_codex_bin": os.environ.get("CCUSAGE_CODEX_BIN", ""),
+        # Plan / rate-limit configuration
+        "cc_plan": os.environ.get("CC_PLAN", ""),
+        "cc_block_limit_tokens": int(os.environ.get("CC_BLOCK_LIMIT_TOKENS", "0")),
+        "cc_week_limit_tokens": int(os.environ.get("CC_WEEK_LIMIT_TOKENS", "0")),
+        "codex_plan": os.environ.get("CODEX_PLAN", ""),
+        "codex_block_limit_tokens": int(os.environ.get("CODEX_BLOCK_LIMIT_TOKENS", "0")),
+        "codex_week_limit_tokens": int(os.environ.get("CODEX_WEEK_LIMIT_TOKENS", "0")),
     }

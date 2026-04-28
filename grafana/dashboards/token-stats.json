@@ -248,6 +248,336 @@
           }
         ]
       }
+    },
+    {
+      "title": "CC Rate Limits",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 13 },
+      "collapsed": false,
+      "id": 8
+    },
+    {
+      "title": "CC 5h Block Usage",
+      "type": "bargauge",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 14 },
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "valueDisplayMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "(codeagent_block_total_tokens{source=~\"$source\", agent=\"cc\"} or vector(0)) / clamp_min((codeagent_block_limit_tokens{source=~\"$source\", agent=\"cc\"} or vector(0)), 1) * 100",
+          "legendFormat": "5h Block",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "id": 9
+    },
+    {
+      "title": "CC Block Resets In",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 14 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "clamp_min((codeagent_block_end_time_seconds{source=~\"$source\", agent=\"cc\"} or vector(0)) - time(), 0)",
+          "legendFormat": "CC Block Reset",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "noValue": "0",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "id": 10
+    },
+    {
+      "title": "CC Plan",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 17 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "name",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "codeagent_plan_info{source=~\"$source\", agent=\"cc\"}",
+          "legendFormat": "{{plan}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "N/A",
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "id": 11
+    },
+    {
+      "title": "CC Week Usage",
+      "type": "bargauge",
+      "gridPos": { "h": 6, "w": 8, "x": 12, "y": 14 },
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "valueDisplayMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "(codeagent_week_total_tokens{source=~\"$source\", agent=\"cc\"} or vector(0)) / clamp_min((codeagent_week_limit_tokens{source=~\"$source\", agent=\"cc\"} or vector(0)), 1) * 100",
+          "legendFormat": "Week",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "id": 12
+    },
+    {
+      "title": "CC Week Resets In",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 14 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "clamp_min((codeagent_week_reset_time_seconds{source=~\"$source\", agent=\"cc\"} or vector(0)) - time(), 0)",
+          "legendFormat": "CC Week Reset",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "noValue": "0",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "id": 13
+    },
+    {
+      "title": "Codex Rate Limits",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 20 },
+      "collapsed": false,
+      "id": 14
+    },
+    {
+      "title": "Codex Daily Block Usage",
+      "type": "bargauge",
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 21 },
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "valueDisplayMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "(codeagent_block_total_tokens{source=~\"$source\", agent=\"codex\"} or vector(0)) / clamp_min((codeagent_block_limit_tokens{source=~\"$source\", agent=\"codex\"} or vector(0)), 1) * 100",
+          "legendFormat": "Daily Block",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "id": 15
+    },
+    {
+      "title": "Codex Block Resets In",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 21 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "clamp_min((codeagent_block_end_time_seconds{source=~\"$source\", agent=\"codex\"} or vector(0)) - time(), 0)",
+          "legendFormat": "Codex Block Reset",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "noValue": "0",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "id": 16
+    },
+    {
+      "title": "Codex Plan",
+      "type": "stat",
+      "gridPos": { "h": 3, "w": 4, "x": 8, "y": 24 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "name",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "codeagent_plan_info{source=~\"$source\", agent=\"codex\"}",
+          "legendFormat": "{{plan}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "N/A",
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        },
+        "overrides": []
+      },
+      "id": 17
+    },
+    {
+      "title": "Codex Week Usage",
+      "type": "bargauge",
+      "gridPos": { "h": 6, "w": 8, "x": 12, "y": 21 },
+      "options": {
+        "displayMode": "gradient",
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "valueDisplayMode": "color"
+      },
+      "targets": [
+        {
+          "expr": "(codeagent_week_total_tokens{source=~\"$source\", agent=\"codex\"} or vector(0)) / clamp_min((codeagent_week_limit_tokens{source=~\"$source\", agent=\"codex\"} or vector(0)), 1) * 100",
+          "legendFormat": "Week",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 70 },
+              { "color": "red", "value": 90 }
+            ]
+          },
+          "color": { "mode": "thresholds" }
+        },
+        "overrides": []
+      },
+      "id": 18
+    },
+    {
+      "title": "Codex Week Resets In",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 4, "x": 20, "y": 21 },
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "textMode": "value",
+        "colorMode": "background_solid",
+        "orientation": "horizontal"
+      },
+      "targets": [
+        {
+          "expr": "clamp_min((codeagent_week_reset_time_seconds{source=~\"$source\", agent=\"codex\"} or vector(0)) - time(), 0)",
+          "legendFormat": "Codex Week Reset",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "noValue": "0",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        },
+        "overrides": []
+      },
+      "id": 19
     }
   ],
   "schemaVersion": 39,
