@@ -259,7 +259,7 @@
       "repeatDirection": "v",
       "options": {
         "tooltip": { "mode": "multi", "sort": "desc" },
-        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true, "width": 250 }
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
       },
       "targets": [
         {
@@ -287,9 +287,10 @@
         "defaults": {
           "color": { "mode": "palette-classic" },
           "custom": {
+            "axisLabel": "Tokens",
             "drawStyle": "line",
-            "fillOpacity": 40,
-            "gradientMode": "none",
+            "fillOpacity": 50,
+            "gradientMode": "opacity",
             "lineInterpolation": "smooth",
             "lineWidth": 1,
             "showPoints": "never",
@@ -326,7 +327,7 @@
       "repeatDirection": "v",
       "options": {
         "tooltip": { "hideZeros": false, "mode": "multi", "sort": "desc" },
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true, "width": 250 }
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }
       },
       "targets": [
         {
@@ -347,13 +348,13 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "",
+            "axisLabel": "Hit Rate",
             "axisPlacement": "auto",
             "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
-            "fillOpacity": 40,
-            "gradientMode": "none",
+            "fillOpacity": 50,
+            "gradientMode": "opacity",
             "hideFrom": { "legend": false, "tooltip": false, "viz": false },
             "insertNulls": false,
             "lineInterpolation": "smooth",
