@@ -35,7 +35,7 @@ docker run -d \
 |---|---|---|
 | `LISTEN_PORT` | `14531` | Prometheus metrics port |
 | `WATCH_INTERVAL` | `5` | Seconds between file checks |
-| `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codex` | Comma-separated config directories |
+| `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codex` | Comma-separated config directories (Claude Code/AntCC use `projects/` subdirs, Codex uses `sessions/` subdirs) |
 | `DAYS_BACK` | `7` | Days of history to scan on startup |
 | `SOURCE` | `""` | Source label for multi-machine setups |
 

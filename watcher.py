@@ -7,6 +7,7 @@ from pathlib import Path
 logger = logging.getLogger("token-stats")
 
 PROJECTS_DIR = "projects"
+SESSIONS_DIR = "sessions"
 GLOB_PATTERN = "**/*.jsonl"
 
 
@@ -14,12 +15,17 @@ def find_jsonl_files(claude_dirs: list[str]) -> dict[str, str]:
     """Find all JSONL files and return {filepath: agent_name}."""
     files = {}
     for base_dir in claude_dirs:
-        projects_dir = os.path.join(base_dir, PROJECTS_DIR)
-        if not os.path.isdir(projects_dir):
-            continue
         agent = _detect_agent(base_dir)
-        for p in Path(projects_dir).rglob("*.jsonl"):
-            files[str(p)] = agent
+        # Claude Code / AntCC: projects/ directory
+        projects_dir = os.path.join(base_dir, PROJECTS_DIR)
+        if os.path.isdir(projects_dir):
+            for p in Path(projects_dir).rglob("*.jsonl"):
+                files[str(p)] = agent
+        # Codex: sessions/ directory
+        sessions_dir = os.path.join(base_dir, SESSIONS_DIR)
+        if os.path.isdir(sessions_dir):
+            for p in Path(sessions_dir).rglob("*.jsonl"):
+                files[str(p)] = "codex"
     return files
 
 
@@ -33,7 +39,7 @@ def _detect_agent(base_dir: str) -> str:
 
 
 def parse_line(line: str) -> dict | None:
-    """Parse a single JSONL line into a usage record."""
+    """Parse a Claude Code / AntCC JSONL line into a usage record."""
     line = line.strip()
     if not line:
         return None
@@ -75,6 +81,68 @@ def parse_line(line: str) -> dict | None:
     }
 
 
+def parse_codex_line(line: str) -> dict | None:
+    """Parse a Codex JSONL line.
+
+    Returns a dict with _type 'model' (model update) or 'usage' (token record).
+    Codex uses cumulative token counters in total_token_usage, so callers
+    must compute deltas between consecutive entries.
+    """
+    line = line.strip()
+    if not line:
+        return None
+    try:
+        obj = json.loads(line)
+    except json.JSONDecodeError:
+        return None
+
+    entry_type = obj.get("type")
+
+    if entry_type == "turn_context":
+        payload = obj.get("payload", {})
+        model = payload.get("model")
+        if model:
+            return {"_type": "model", "model": model}
+        return None
+
+    if entry_type == "event_msg":
+        payload = obj.get("payload", {})
+        if payload.get("type") != "token_count":
+            return None
+        info = payload.get("info")
+        if not info:
+            return None
+
+        total_usage = info.get("total_token_usage") or {}
+        last_usage = info.get("last_token_usage") or {}
+
+        ts_str = obj.get("timestamp", "")
+        timestamp = None
+        if ts_str:
+            try:
+                timestamp = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                pass
+
+        model = info.get("model") or None
+
+        return {
+            "_type": "usage",
+            "timestamp": timestamp,
+            "model": model,
+            "total_input_tokens": total_usage.get("input_tokens", 0) or 0,
+            "total_output_tokens": total_usage.get("output_tokens", 0) or 0,
+            "total_cached_input_tokens": total_usage.get("cached_input_tokens", 0) or 0,
+            "total_reasoning_output_tokens": total_usage.get("reasoning_output_tokens", 0) or 0,
+            "last_input_tokens": last_usage.get("input_tokens", 0) or 0,
+            "last_output_tokens": last_usage.get("output_tokens", 0) or 0,
+            "last_cached_input_tokens": last_usage.get("cached_input_tokens", 0) or 0,
+            "last_reasoning_output_tokens": last_usage.get("reasoning_output_tokens", 0) or 0,
+        }
+
+    return None
+
+
 class JSONLWatcher:
     def __init__(self, claude_dirs: list[str], days_back: int = 7, on_record=None):
         self.claude_dirs = claude_dirs
@@ -82,6 +150,7 @@ class JSONLWatcher:
         self.on_record = on_record
         self._file_positions: dict[str, int] = {}
         self._seen_keys: set[str] = set()
+        self._codex_state: dict[str, dict] = {}
 
     def scan_history(self):
         """Read existing JSONL files to populate historical data."""
@@ -109,10 +178,17 @@ class JSONLWatcher:
         gone = set(self._file_positions.keys()) - set(files.keys())
         for f in gone:
             del self._file_positions[f]
+            self._codex_state.pop(f, None)
 
     def _read_file(self, filepath: str, agent: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read new lines from a file starting from tracked position.
         Returns (new_position, record_count)."""
+        if agent == "codex":
+            return self._read_codex_file(filepath, cutoff)
+        return self._read_claude_file(filepath, agent, cutoff)
+
+    def _read_claude_file(self, filepath: str, agent: str, cutoff: datetime | None) -> tuple[int, int]:
+        """Read Claude Code / AntCC JSONL file."""
         count = 0
         try:
             size = os.path.getsize(filepath)
@@ -143,6 +219,102 @@ class JSONLWatcher:
                     if self.on_record:
                         self.on_record(agent, record)
                     count += 1
+                return f.tell(), count
+        except OSError as e:
+            logger.error("Error reading %s: %s", filepath, e)
+            return start_pos, 0
+
+    def _read_codex_file(self, filepath: str, cutoff: datetime | None) -> tuple[int, int]:
+        """Read Codex JSONL file with cumulative counter delta computation."""
+        count = 0
+        try:
+            size = os.path.getsize(filepath)
+        except OSError:
+            return self._file_positions.get(filepath, 0), 0
+
+        start_pos = self._file_positions.get(filepath, 0)
+        if start_pos > size:
+            start_pos = 0
+
+        if start_pos == size:
+            return size, 0
+
+        state = self._codex_state.get(filepath, {
+            "model": "unknown",
+            "prev_totals": None,
+        })
+
+        try:
+            with open(filepath, "r") as f:
+                f.seek(start_pos)
+                for line in f:
+                    parsed = parse_codex_line(line)
+                    if parsed is None:
+                        continue
+
+                    if parsed["_type"] == "model":
+                        state["model"] = parsed["model"]
+                        continue
+
+                    model = parsed["model"] or state["model"]
+
+                    cur = {
+                        "input": parsed["total_input_tokens"],
+                        "output": parsed["total_output_tokens"],
+                        "cached": parsed["total_cached_input_tokens"],
+                        "reasoning": parsed["total_reasoning_output_tokens"],
+                    }
+
+                    prev = state.get("prev_totals")
+                    if prev is not None:
+                        delta_input = cur["input"] - prev["input"]
+                        delta_output = cur["output"] - prev["output"]
+                        delta_cached = cur["cached"] - prev["cached"]
+                        delta_reasoning = cur["reasoning"] - prev["reasoning"]
+
+                        # Handle counter resets (e.g. session restart)
+                        if delta_input < 0:
+                            delta_input = cur["input"]
+                            delta_output = cur["output"]
+                            delta_cached = cur["cached"]
+                            delta_reasoning = cur["reasoning"]
+                    else:
+                        # First entry: use last_token_usage if available
+                        if parsed["last_input_tokens"] > 0 or parsed["last_output_tokens"] > 0:
+                            delta_input = parsed["last_input_tokens"]
+                            delta_output = parsed["last_output_tokens"]
+                            delta_cached = parsed["last_cached_input_tokens"]
+                            delta_reasoning = parsed["last_reasoning_output_tokens"]
+                        else:
+                            delta_input = cur["input"]
+                            delta_output = cur["output"]
+                            delta_cached = cur["cached"]
+                            delta_reasoning = cur["reasoning"]
+
+                    state["prev_totals"] = cur
+
+                    if delta_input <= 0 and delta_output <= 0 and delta_cached <= 0 and delta_reasoning <= 0:
+                        continue
+
+                    record = {
+                        "timestamp": parsed["timestamp"],
+                        "model": model,
+                        "input_tokens": max(delta_input, 0),
+                        "output_tokens": max(delta_output, 0) + max(delta_reasoning, 0),
+                        "cache_creation_tokens": 0,
+                        "cache_read_tokens": max(delta_cached, 0),
+                        "cost_usd": 0,
+                        "dedup_key": None,
+                    }
+
+                    if cutoff and record["timestamp"] and record["timestamp"] < cutoff:
+                        continue
+
+                    if self.on_record:
+                        self.on_record("codex", record)
+                    count += 1
+
+                self._codex_state[filepath] = state
                 return f.tell(), count
         except OSError as e:
             logger.error("Error reading %s: %s", filepath, e)
