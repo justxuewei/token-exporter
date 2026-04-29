@@ -217,7 +217,7 @@
       "gridPos": { "h": 9, "w": 12, "x": 0, "y": 12 },
       "options": {
         "displayMode": "basic",
-        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false },
+        "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true },
         "maxVizHeight": 30,
         "minVizHeight": 30,
         "minVizWidth": 8,
