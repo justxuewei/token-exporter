@@ -2,7 +2,7 @@ import os
 
 
 def load_config():
-    default_paths = os.path.expanduser("~/.claude,~/.codefuse/engine/cc,~/.codex")
+    default_paths = os.path.expanduser("~/.claude,~/.codefuse/engine/cc,~/.codefuse/engine/codex,~/.codex")
     claude_dirs = os.environ.get("CLAUDE_CONFIG_DIR", default_paths)
     paths = [os.path.expanduser(p.strip()) for p in claude_dirs.split(",") if p.strip()]
 

@@ -1,12 +1,12 @@
 # Token Exporter
 
-A Prometheus exporter that watches Claude Code, AntCC, and Codex JSONL conversation files and exposes token usage metrics.
+A Prometheus exporter that watches Claude Code, AntCC, Codex, and CodeFuse Codex JSONL conversation files and exposes token usage metrics.
 
 ## Features
 
 - Tracks input, output, cache creation, and cache read tokens per agent and model
 - Tracks cost in USD
-- Supports multiple agents: Claude Code, AntCC (CodeFuse), Codex
+- Supports multiple agents: Claude Code, AntCC (CodeFuse), Codex, CodeFuse Codex
 - Configurable source label for multi-machine setups
 - Daily token gauges for historical queries
 - Grafana dashboard included
@@ -35,7 +35,7 @@ docker run -d \
 |---|---|---|
 | `LISTEN_PORT` | `14531` | Prometheus metrics port |
 | `WATCH_INTERVAL` | `5` | Seconds between file checks |
-| `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codex` | Comma-separated config directories (Claude Code/AntCC use `projects/` subdirs, Codex uses `sessions/` subdirs) |
+| `CLAUDE_CONFIG_DIR` | `~/.claude,~/.codefuse/engine/cc,~/.codefuse/engine/codex,~/.codex` | Comma-separated config directories (Claude Code/AntCC use `projects/` subdirs, Codex/CodeFuse Codex use `sessions/` subdirs) |
 | `DAYS_BACK` | `7` | Days of history to scan on startup |
 | `SOURCE` | `""` | Source label for multi-machine setups |
 
