@@ -50,12 +50,20 @@ def _extract_project(filepath: str, projects_dir: str) -> str:
 
 
 def _detect_agent(base_dir: str) -> str:
-    base = os.path.basename(os.path.normpath(base_dir))
-    if "codex" in base.lower():
+    # Check full path to distinguish between ~/.codex and ~/.codefuse/engine/codex
+    if base_dir.endswith("/.codex") or "/.codex/" in base_dir:
         return "codex"
-    if "codefuse" in base.lower() or "cc" in base.lower():
+    if "/codex" in base_dir:
+        return "antcodex"
+    base = os.path.basename(os.path.normpath(base_dir))
+    if base.lower() == "cc":
         return "antcc"
-    return "claude-code"
+    # Match exactly "codefuse" or ".codefuse" (not "codefuse-cc" etc.)
+    if base.lower() in ("codefuse", ".codefuse"):
+        return "antcc"
+    if base.lower() == ".claude" or base == "claude":
+        return "claude-code"
+    return "unknown"
 
 
 def parse_line(line: str) -> dict | None:
