@@ -168,13 +168,15 @@ def parse_codex_line(line: str) -> dict | None:
 
 
 class JSONLWatcher:
-    def __init__(self, claude_dirs: list[str], days_back: int = 7, on_record=None):
+    def __init__(self, claude_dirs: list[str], days_back: int = 7, state_file: str = "", on_record=None):
         self.claude_dirs = claude_dirs
         self.days_back = days_back
+        self.state_file = state_file
         self.on_record = on_record
         self._file_positions: dict[str, int] = {}
         self._seen_keys: set[str] = set()
         self._codex_state: dict[str, dict] = {}
+        self._load_state()
 
     def scan_history(self):
         """Read existing JSONL files to populate historical data."""
@@ -187,6 +189,7 @@ class JSONLWatcher:
             self._file_positions[filepath] = pos
             count += n
         logger.info("Scanned %d historical records", count)
+        self._save_state()
 
     def check_updates(self):
         """Check for new lines in known files and any new files."""
@@ -203,6 +206,59 @@ class JSONLWatcher:
         for f in gone:
             del self._file_positions[f]
             self._codex_state.pop(f, None)
+
+        self._save_state()
+
+    def _load_state(self):
+        if not self.state_file:
+            return
+        try:
+            with open(self.state_file, "r") as f:
+                state = json.load(f)
+        except FileNotFoundError:
+            return
+        except (OSError, json.JSONDecodeError) as e:
+            logger.warning("Could not load watcher state from %s: %s", self.state_file, e)
+            return
+
+        self._file_positions = {
+            str(path): int(pos)
+            for path, pos in state.get("file_positions", {}).items()
+            if isinstance(pos, int | float)
+        }
+        self._seen_keys = set(str(key) for key in state.get("seen_keys", []))
+        self._codex_state = {
+            str(path): value
+            for path, value in state.get("codex_state", {}).items()
+            if isinstance(value, dict)
+        }
+        logger.info(
+            "Loaded watcher state from %s (%d files, %d dedup keys)",
+            self.state_file,
+            len(self._file_positions),
+            len(self._seen_keys),
+        )
+
+    def _save_state(self):
+        if not self.state_file:
+            return
+
+        state_path = Path(self.state_file)
+        tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+        state = {
+            "version": 1,
+            "file_positions": self._file_positions,
+            "seen_keys": sorted(self._seen_keys),
+            "codex_state": self._codex_state,
+        }
+
+        try:
+            state_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(tmp_path, "w") as f:
+                json.dump(state, f, separators=(",", ":"), sort_keys=True)
+            os.replace(tmp_path, state_path)
+        except OSError as e:
+            logger.error("Could not save watcher state to %s: %s", self.state_file, e)
 
     def _read_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read new lines from a file starting from tracked position.

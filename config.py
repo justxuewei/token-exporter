@@ -12,4 +12,5 @@ def load_config():
         "claude_dirs": paths,
         "days_back": int(os.environ.get("DAYS_BACK", "7")),
         "source": os.environ.get("SOURCE", ""),
+        "state_file": os.path.expanduser(os.environ.get("STATE_FILE", "~/.token-exporter/state.json")),
     }

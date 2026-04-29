@@ -43,6 +43,7 @@ def main():
     watcher = JSONLWatcher(
         claude_dirs=config["claude_dirs"],
         days_back=config["days_back"],
+        state_file=config["state_file"],
         on_record=record_usage,
     )
 
