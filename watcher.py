@@ -26,7 +26,7 @@ def find_jsonl_files(claude_dirs: list[str]) -> dict[str, tuple[str, str]]:
         sessions_dir = os.path.join(base_dir, SESSIONS_DIR)
         if os.path.isdir(sessions_dir):
             for p in Path(sessions_dir).rglob("*.jsonl"):
-                files[str(p)] = ("codex", "unknown")
+                files[str(p)] = (agent, "unknown")
     return files
 
 
@@ -271,8 +271,8 @@ class JSONLWatcher:
     def _read_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read new lines from a file starting from tracked position.
         Returns (new_position, record_count)."""
-        if agent == "codex":
-            return self._read_codex_file(filepath, project, cutoff)
+        if agent in ("codex", "antcodex"):
+            return self._read_codex_file(filepath, agent, project, cutoff)
         return self._read_claude_file(filepath, agent, project, cutoff)
 
     def _read_claude_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
@@ -313,7 +313,7 @@ class JSONLWatcher:
             logger.error("Error reading %s: %s", filepath, e)
             return start_pos, 0
 
-    def _read_codex_file(self, filepath: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
+    def _read_codex_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
         """Read Codex JSONL file with cumulative counter delta computation."""
         count = 0
         try:
@@ -409,7 +409,7 @@ class JSONLWatcher:
                         continue
 
                     if self.on_record:
-                        self.on_record("codex", record)
+                        self.on_record(agent, record)
                     count += 1
 
                 self._codex_state[filepath] = state
