@@ -62,7 +62,7 @@ def _detect_agent(base_dir: str) -> str:
     if base.lower() in ("codefuse", ".codefuse"):
         return "antcc"
     if base.lower() == ".claude" or base == "claude":
-        return "claude-code"
+        return "cc"
     return "unknown"
 
 

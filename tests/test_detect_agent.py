@@ -10,8 +10,8 @@ from watcher import JSONLWatcher, _detect_agent, find_jsonl_files
 
 class TestDetectAgent:
     def test_claude_code(self):
-        assert _detect_agent("/home/user/.claude") == "claude-code"
-        assert _detect_agent("/Users/me/.claude") == "claude-code"
+        assert _detect_agent("/home/user/.claude") == "cc"
+        assert _detect_agent("/Users/me/.claude") == "cc"
 
     def test_antcc(self):
         assert _detect_agent("/home/user/.codefuse/engine/cc") == "antcc"

@@ -9,7 +9,7 @@ A Prometheus exporter that watches Claude Code, AntCC, Codex, and CodeFuse Codex
 Import `grafana/dashboards/token-stats.json` or use the included provisioning. The dashboard includes:
 
 - **All Agents** — combined summary stats and per-agent timeseries
-- **Per-Agent Groups** — auto-generated sections for each agent (antcc, claude-code, codex) with:
+- **Per-Agent Groups** — auto-generated sections for each agent (antcc, cc, codex, antcodex) with:
   - Summary stats: total, input, output, cache tokens, cache hit rate
   - Token Usage chart — stacked timeseries of input/output/cache read/cache creation
   - Cache Hit Rate chart — `cache_read / (cache_read + input)` over time
