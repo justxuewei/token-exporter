@@ -82,12 +82,14 @@ def parse_line(line: str) -> dict | None:
 
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
-    if not input_tokens and not output_tokens:
+    cache_creation_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+    cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
+    if not input_tokens and not output_tokens and not cache_creation_tokens and not cache_read_tokens:
         return None
 
     msg_id = obj.get("message", {}).get("id", "")
     request_id = obj.get("requestId", "")
-    dedup_key = f"{msg_id}:{request_id}" if msg_id or request_id else None
+    dedup_key = f"{msg_id}:{request_id}" if msg_id and request_id else None
 
     ts_str = obj.get("timestamp", "")
     timestamp = None
@@ -102,8 +104,8 @@ def parse_line(line: str) -> dict | None:
         "model": obj.get("message", {}).get("model", "unknown") or "unknown",
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
-        "cache_creation_tokens": usage.get("cache_creation_input_tokens", 0) or 0,
-        "cache_read_tokens": usage.get("cache_read_input_tokens", 0) or 0,
+        "cache_creation_tokens": cache_creation_tokens,
+        "cache_read_tokens": cache_read_tokens,
         "cost_usd": obj.get("costUSD", 0) or 0,
         "dedup_key": dedup_key,
     }

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from watcher import JSONLWatcher
+from watcher import JSONLWatcher, parse_line
 
 
 class CodexUsageTests(unittest.TestCase):
@@ -155,6 +155,70 @@ class CodexUsageTests(unittest.TestCase):
         self.assertEqual(records[0][1]["input_tokens"], 60)
         self.assertEqual(records[0][1]["cache_read_tokens"], 40)
         self.assertEqual(records[0][1]["output_tokens"], 20)
+
+
+class ClaudeUsageTests(unittest.TestCase):
+    def test_claude_cache_only_usage_is_counted(self):
+        record = parse_line(json.dumps({
+            "timestamp": "2026-05-08T10:00:00Z",
+            "message": {
+                "id": "msg1",
+                "model": "claude-sonnet-4-20250514",
+                "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cache_creation_input_tokens": 12,
+                    "cache_read_input_tokens": 34,
+                },
+            },
+            "requestId": "req1",
+        }))
+
+        self.assertIsNotNone(record)
+        self.assertEqual(record["input_tokens"], 0)
+        self.assertEqual(record["output_tokens"], 0)
+        self.assertEqual(record["cache_creation_tokens"], 12)
+        self.assertEqual(record["cache_read_tokens"], 34)
+
+    def test_claude_dedup_key_requires_message_and_request_id(self):
+        missing_request = parse_line(json.dumps({
+            "timestamp": "2026-05-08T10:00:00Z",
+            "message": {
+                "id": "msg1",
+                "model": "claude-sonnet-4-20250514",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                },
+            },
+        }))
+        missing_message = parse_line(json.dumps({
+            "timestamp": "2026-05-08T10:00:00Z",
+            "message": {
+                "model": "claude-sonnet-4-20250514",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                },
+            },
+            "requestId": "req1",
+        }))
+        complete = parse_line(json.dumps({
+            "timestamp": "2026-05-08T10:00:00Z",
+            "message": {
+                "id": "msg1",
+                "model": "claude-sonnet-4-20250514",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 1,
+                },
+            },
+            "requestId": "req1",
+        }))
+
+        self.assertIsNone(missing_request["dedup_key"])
+        self.assertIsNone(missing_message["dedup_key"])
+        self.assertEqual(complete["dedup_key"], "msg1:req1")
 
 
 if __name__ == "__main__":
