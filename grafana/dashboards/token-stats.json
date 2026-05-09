@@ -40,7 +40,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]))",
+          "expr": "sum(increase(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or vector(0)",
           "legendFormat": "Input Tokens",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       },
       "targets": [
         {
-          "expr": "sum(increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]))",
+          "expr": "sum(increase(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or vector(0)",
           "legendFormat": "Output Tokens",
           "refId": "A"
         }
@@ -106,7 +106,7 @@
       },
       "targets": [
         {
-          "expr": "(sum(increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)) / clamp_min((sum(increase(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or vector(0)) + (sum(increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)), 1)",
+          "expr": "(sum(codeagent_cache_read_tokens_total{source=\"$source\"}) or vector(0)) / clamp_min((sum(codeagent_input_tokens_total{source=\"$source\"}) or vector(0)) + (sum(codeagent_cache_read_tokens_total{source=\"$source\"}) or vector(0)), 1)",
           "legendFormat": "Cache Hit Rate",
           "refId": "A"
         }
@@ -230,7 +230,7 @@
       },
       "targets": [
         {
-          "expr": "sort_desc(sum by (project) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) > 0)",
+          "expr": "sort_desc(((sum by (project) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (project) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (project) (increase(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (project) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (project) (increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (project) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (project) (increase(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (project) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"}))) > 0)",
           "instant": true,
           "legendFormat": "{{project}}",
           "refId": "A"
@@ -241,7 +241,7 @@
           "color": { "mode": "palette-classic" },
           "min": 0,
           "unit": "short",
-          "decimals": 0
+          "decimals": 2
         },
         "overrides": []
       }
@@ -258,7 +258,7 @@
       },
       "targets": [
         {
-          "expr": "sort_desc(sum by (model) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) > 0)",
+          "expr": "sort_desc(((sum by (model) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (model) (increase(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (model) (increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (model) (increase(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"}))) > 0)",
           "legendFormat": "{{model}}",
           "refId": "A"
         }
@@ -267,7 +267,7 @@
         "defaults": {
           "color": { "mode": "palette-classic" },
           "unit": "short",
-          "decimals": 0
+          "decimals": 2
         },
         "overrides": []
       }
@@ -284,7 +284,7 @@
       },
       "targets": [
         {
-          "expr": "sort_desc(sum by (agent) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_output_tokens_total{source=\"$source\"}[$__range]) + increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) > 0)",
+          "expr": "sort_desc(((sum by (agent) (increase(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (agent) (increase(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (agent) (increase(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) + (sum by (agent) (increase(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"}))) > 0)",
           "legendFormat": "{{agent}}",
           "refId": "A"
         }
@@ -293,7 +293,7 @@
         "defaults": {
           "color": { "mode": "palette-classic" },
           "unit": "short",
-          "decimals": 0
+          "decimals": 2
         },
         "overrides": []
       }

@@ -3,8 +3,6 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-import pytest
-
 from watcher import JSONLWatcher
 
 
@@ -88,8 +86,9 @@ class TestStatePersistence:
             )
             watcher2.scan_history()
 
-            # Should NOT re-process already-seen records
-            assert len(records) == 0
+            # Prometheus counters are in-memory, so a restarted exporter must
+            # replay history to rehydrate metrics even when state exists.
+            assert len(records) == 2
             assert len(watcher2._seen_keys) == 2
 
     def test_state_file_not_required(self):

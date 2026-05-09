@@ -197,10 +197,18 @@ class JSONLWatcher:
         self._load_state()
 
     def scan_history(self):
-        """Read existing JSONL files to populate historical data."""
+        """Read existing JSONL files to populate historical data.
+
+        Prometheus counters are process-local. Even when a state file exists,
+        startup must replay the scanned history so metrics are rehydrated after
+        an exporter restart.
+        """
         cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_back)
         files = find_jsonl_files(self.claude_dirs)
         logger.info("Scanning %d JSONL files for history...", len(files))
+        self._file_positions = {}
+        self._seen_keys = set()
+        self._codex_state = {}
         count = 0
         for filepath, (agent, project) in files.items():
             pos, n = self._read_file(filepath, agent, project, cutoff)

@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -219,6 +220,47 @@ class ClaudeUsageTests(unittest.TestCase):
         self.assertIsNone(missing_request["dedup_key"])
         self.assertIsNone(missing_message["dedup_key"])
         self.assertEqual(complete["dedup_key"], "msg1:req1")
+
+
+class WatcherStateTests(unittest.TestCase):
+    def test_scan_history_rehydrates_metrics_when_state_exists(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = os.path.join(tmpdir, "state.json")
+            project_dir = Path(tmpdir) / "projects" / "-home-nxw-developer-token-exporter"
+            project_dir.mkdir(parents=True)
+            session = project_dir / "session.jsonl"
+            session.write_text(json.dumps({
+                "timestamp": "2026-05-08T10:00:00Z",
+                "message": {
+                    "id": "msg1",
+                    "model": "claude-sonnet-4-20250514",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                    },
+                },
+                "requestId": "req1",
+            }) + "\n")
+
+            first_records = []
+            watcher = JSONLWatcher(
+                claude_dirs=[tmpdir],
+                state_file=state_file,
+                on_record=lambda agent, rec: first_records.append((agent, rec)),
+            )
+            watcher.scan_history()
+
+            second_records = []
+            restarted = JSONLWatcher(
+                claude_dirs=[tmpdir],
+                state_file=state_file,
+                on_record=lambda agent, rec: second_records.append((agent, rec)),
+            )
+            restarted.scan_history()
+
+        self.assertEqual(len(first_records), 1)
+        self.assertEqual(len(second_records), 1)
+        self.assertEqual(second_records[0][1]["input_tokens"], 10)
 
 
 if __name__ == "__main__":

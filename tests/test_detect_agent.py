@@ -3,8 +3,6 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-import pytest
-
 from watcher import JSONLWatcher, _detect_agent, find_jsonl_files
 
 
