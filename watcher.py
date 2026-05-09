@@ -146,7 +146,10 @@ def parse_codex_line(line: str) -> dict | None:
             return None
 
         total_usage = info.get("total_token_usage") or {}
-        last_usage = info.get("last_token_usage") or {}
+        last_usage = info.get("last_token_usage")
+        has_last_usage = isinstance(last_usage, dict)
+        if not has_last_usage:
+            last_usage = {}
 
         ts_str = obj.get("timestamp", "")
         timestamp = None
@@ -164,11 +167,16 @@ def parse_codex_line(line: str) -> dict | None:
             "model": model,
             "total_input_tokens": total_usage.get("input_tokens", 0) or 0,
             "total_output_tokens": total_usage.get("output_tokens", 0) or 0,
-            "total_cached_input_tokens": total_usage.get("cached_input_tokens", 0) or 0,
+            "total_cached_input_tokens": (
+                total_usage.get("cached_input_tokens", total_usage.get("cache_read_input_tokens", 0)) or 0
+            ),
             "total_reasoning_output_tokens": total_usage.get("reasoning_output_tokens", 0) or 0,
+            "has_last_usage": has_last_usage,
             "last_input_tokens": last_usage.get("input_tokens", 0) or 0,
             "last_output_tokens": last_usage.get("output_tokens", 0) or 0,
-            "last_cached_input_tokens": last_usage.get("cached_input_tokens", 0) or 0,
+            "last_cached_input_tokens": (
+                last_usage.get("cached_input_tokens", last_usage.get("cache_read_input_tokens", 0)) or 0
+            ),
             "last_reasoning_output_tokens": last_usage.get("reasoning_output_tokens", 0) or 0,
         }
 
@@ -359,30 +367,21 @@ class JSONLWatcher:
                     }
 
                     prev = state.get("prev_totals")
-                    if prev is not None:
-                        delta_input = cur["input"] - prev["input"]
-                        delta_output = cur["output"] - prev["output"]
-                        delta_cached = cur["cached"] - prev["cached"]
-                        delta_reasoning = cur["reasoning"] - prev["reasoning"]
-
-                        # Handle counter resets (e.g. session restart)
-                        if delta_input < 0:
-                            delta_input = cur["input"]
-                            delta_output = cur["output"]
-                            delta_cached = cur["cached"]
-                            delta_reasoning = cur["reasoning"]
+                    if parsed["has_last_usage"]:
+                        delta_input = parsed["last_input_tokens"]
+                        delta_output = parsed["last_output_tokens"]
+                        delta_cached = parsed["last_cached_input_tokens"]
+                        delta_reasoning = parsed["last_reasoning_output_tokens"]
+                    elif prev is not None:
+                        delta_input = max(cur["input"] - prev["input"], 0)
+                        delta_output = max(cur["output"] - prev["output"], 0)
+                        delta_cached = max(cur["cached"] - prev["cached"], 0)
+                        delta_reasoning = max(cur["reasoning"] - prev["reasoning"], 0)
                     else:
-                        # First entry: use last_token_usage if available
-                        if parsed["last_input_tokens"] > 0 or parsed["last_output_tokens"] > 0:
-                            delta_input = parsed["last_input_tokens"]
-                            delta_output = parsed["last_output_tokens"]
-                            delta_cached = parsed["last_cached_input_tokens"]
-                            delta_reasoning = parsed["last_reasoning_output_tokens"]
-                        else:
-                            delta_input = cur["input"]
-                            delta_output = cur["output"]
-                            delta_cached = cur["cached"]
-                            delta_reasoning = cur["reasoning"]
+                        delta_input = cur["input"]
+                        delta_output = cur["output"]
+                        delta_cached = cur["cached"]
+                        delta_reasoning = cur["reasoning"]
 
                     state["prev_totals"] = cur
 
@@ -393,14 +392,18 @@ class JSONLWatcher:
                     # subtract cached to get the non-cached (full-price) portion.
                     # This makes input_tokens and cache_read_tokens disjoint,
                     # matching Claude Code/AntCC semantics.
+                    input_tokens = max(delta_input, 0)
+                    cache_read_tokens = min(max(delta_cached, 0), input_tokens)
                     record = {
                         "timestamp": parsed["timestamp"],
                         "model": model,
                         "project": state["project"],
-                        "input_tokens": max(delta_input - delta_cached, 0),
-                        "output_tokens": max(delta_output, 0) + max(delta_reasoning, 0),
+                        "input_tokens": input_tokens - cache_read_tokens,
+                        # Codex reasoning_output_tokens is a breakdown of
+                        # output_tokens, not an additional billable amount.
+                        "output_tokens": max(delta_output, 0),
                         "cache_creation_tokens": 0,
-                        "cache_read_tokens": max(delta_cached, 0),
+                        "cache_read_tokens": cache_read_tokens,
                         "cost_usd": 0,
                         "dedup_key": None,
                     }
