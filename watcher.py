@@ -4,6 +4,7 @@ import os
 import subprocess
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("token-stats")
 
@@ -25,7 +26,7 @@ def _detect_agent(base_dir: str) -> str:
 
 
 def _extract_project(project_key: str) -> str:
-    """Extract project name from a ccusage --instances project key.
+    """Extract project name from a ccusage --instances project key or directory path.
 
     The key encodes the working directory with dashes replacing slashes,
     e.g. '-home-nxw-developer-token-exporter'.
@@ -78,6 +79,127 @@ def _run_codex_usage(codex_dir: str, since: date, timezone_name: str = "UTC") ->
         return None
 
 
+def _scan_antcc_dir(base_dir: str, since: date, timezone_name: str = "UTC") -> dict:
+    """Scan AntCC JSONL files directly with msg_id dedup.
+
+    AntCC records have empty requestId, so ccusage doesn't dedup them
+    (https://github.com/ryoppippi/ccusage/issues/976). This parser
+    deduplicates by msg_id to produce correct counts.
+
+    Returns dict in ccusage --instances format:
+    {"projects": {"-home-...": [{"date": "...", "modelBreakdowns": [...]}]}}
+    """
+    tz = ZoneInfo(timezone_name)
+    since_local = since.strftime("%Y-%m-%d")
+    projects_dir = os.path.join(base_dir, "projects")
+
+    # Aggregate per (project_key, date, model) with dedup by msg_id
+    # {project_key: {date: {model: {"input": N, "output": N, ...}}}}
+    agg: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+    # Per-msg_id token values for dedup: {project_key: {date: {msg_id: {"input": N, ...}}}}
+    msg_values: dict[str, dict[str, dict[str, dict[str, int]]]] = {}
+
+    for project_dir in Path(projects_dir).iterdir():
+        if not project_dir.is_dir():
+            continue
+        project_key = project_dir.name
+        agg[project_key] = {}
+        msg_values[project_key] = {}
+
+        for jsonl_file in project_dir.rglob("*.jsonl"):
+            try:
+                with open(jsonl_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            obj = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        usage = obj.get("message", {}).get("usage")
+                        if not usage:
+                            continue
+
+                        msg_id = obj.get("message", {}).get("id", "")
+                        ts_str = obj.get("timestamp", "")
+                        if not ts_str:
+                            continue
+
+                        try:
+                            ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                        except (ValueError, TypeError):
+                            continue
+
+                        local_ts = ts.astimezone(tz)
+                        date_str = local_ts.strftime("%Y-%m-%d")
+                        if date_str < since_local:
+                            continue
+
+                        model = obj.get("message", {}).get("model", "unknown") or "unknown"
+                        input_tokens = usage.get("input_tokens", 0) or 0
+                        output_tokens = usage.get("output_tokens", 0) or 0
+                        cache_creation = usage.get("cache_creation_input_tokens", 0) or 0
+                        cache_read = usage.get("cache_read_input_tokens", 0) or 0
+
+                        if not input_tokens and not output_tokens and not cache_creation and not cache_read:
+                            continue
+
+                        date_agg = agg[project_key].setdefault(date_str, {})
+                        if model not in date_agg:
+                            date_agg[model] = {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+                        m = date_agg[model]
+
+                        # Dedup by msg_id: subtract old values, add new (streaming updates)
+                        if msg_id:
+                            date_msgs = msg_values[project_key].setdefault(date_str, {})
+                            old = date_msgs.get(msg_id)
+                            if old:
+                                m["input"] -= old["input"]
+                                m["output"] -= old["output"]
+                                m["cache_creation"] -= old["cache_creation"]
+                                m["cache_read"] -= old["cache_read"]
+                            date_msgs[msg_id] = {"input": input_tokens, "output": output_tokens, "cache_creation": cache_creation, "cache_read": cache_read}
+
+                        m["input"] += input_tokens
+                        m["output"] += output_tokens
+                        m["cache_creation"] += cache_creation
+                        m["cache_read"] += cache_read
+            except OSError:
+                continue
+
+    # Convert to ccusage --instances format
+    result: dict[str, list] = {"projects": {}}
+    for project_key, dates in sorted(agg.items()):
+        entries = []
+        for date_str, models in sorted(dates.items()):
+            breakdowns = []
+            for model, tokens in sorted(models.items()):
+                breakdowns.append({
+                    "modelName": model,
+                    "inputTokens": tokens["input"],
+                    "outputTokens": tokens["output"],
+                    "cacheCreationTokens": tokens["cache_creation"],
+                    "cacheReadTokens": tokens["cache_read"],
+                    "cost": 0,
+                })
+            entries.append({
+                "date": date_str,
+                "inputTokens": sum(b["inputTokens"] for b in breakdowns),
+                "outputTokens": sum(b["outputTokens"] for b in breakdowns),
+                "cacheCreationTokens": sum(b["cacheCreationTokens"] for b in breakdowns),
+                "cacheReadTokens": sum(b["cacheReadTokens"] for b in breakdowns),
+                "totalTokens": sum(b["inputTokens"] + b["outputTokens"] + b["cacheCreationTokens"] + b["cacheReadTokens"] for b in breakdowns),
+                "totalCost": 0,
+                "modelsUsed": [b["modelName"] for b in breakdowns],
+                "modelBreakdowns": breakdowns,
+            })
+        if entries:
+            result["projects"][project_key] = entries
+    return result
+
+
 # Token fields to track for delta computation
 _TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens")
 
@@ -124,8 +246,72 @@ def _prune_stale_totals(totals: dict[tuple, dict], cutoff: date) -> None:
         del totals[k]
 
 
+def _process_ccusage_data(data: dict, agent: str, on_record, last_totals: dict, project: str = "") -> int:
+    """Parse ccusage JSON output and emit delta records.
+
+    Handles two formats:
+    - --instances: {"projects": {"key": [entries]}}
+    - daily: {"daily": [entries]}
+    """
+    count = 0
+
+    # Normalize to list of (project, entries) pairs
+    if "projects" in data:
+        items = [(_extract_project(k), entries) for k, entries in data["projects"].items()]
+    elif "daily" in data:
+        items = [(project or "unknown", data["daily"])]
+    else:
+        return 0
+
+    for project, entries in items:
+        for entry in entries:
+            date_str = entry.get("date", "")
+            for bd in entry.get("modelBreakdowns", []):
+                model = bd.get("modelName", "unknown")
+                current = {
+                    "input_tokens": bd.get("inputTokens", 0),
+                    "output_tokens": bd.get("outputTokens", 0),
+                    "cache_creation_tokens": bd.get("cacheCreationTokens", 0),
+                    "cache_read_tokens": bd.get("cacheReadTokens", 0),
+                }
+                key = (agent, project, model, date_str)
+                last = last_totals.get(key)
+                if last is None:
+                    delta = current
+                else:
+                    delta = {
+                        field: max(current[field] - last.get(field, 0), 0)
+                        for field in _TOKEN_FIELDS
+                    }
+                last_totals[key] = current
+
+                has_delta = any(delta.get(f, 0) > 0 for f in _TOKEN_FIELDS)
+                if not has_delta:
+                    continue
+
+                record = {
+                    "timestamp": datetime.fromisoformat(date_str) if date_str else None,
+                    "model": model,
+                    "project": project,
+                    "input_tokens": delta["input_tokens"],
+                    "output_tokens": delta["output_tokens"],
+                    "cache_creation_tokens": delta["cache_creation_tokens"],
+                    "cache_read_tokens": delta["cache_read_tokens"],
+                    "cost_usd": bd.get("cost", 0) or 0,
+                }
+                if on_record:
+                    on_record(agent, record)
+                count += 1
+    return count
+
+
 class CcusageCollector:
-    """Collects token usage from Claude Code / AntCC data directories via ccusage CLI."""
+    """Collects token usage from Claude Code / AntCC data directories.
+
+    Uses ccusage CLI for Claude Code (cc) directories and inline JSONL
+    parsing with msg_id dedup for AntCC directories (ccusage doesn't
+    dedup when requestId is empty).
+    """
 
     def __init__(self, claude_dirs: list[str], days_back: int = 7, on_record=None, state_file: str = "", timezone_name: str = "UTC"):
         self.claude_dirs = claude_dirs
@@ -139,7 +325,7 @@ class CcusageCollector:
             logger.info("Loaded CcusageCollector state from %s (%d entries)", state_file, len(self._last_totals))
 
     def scan_history(self):
-        """Run ccusage for all configured directories and emit records."""
+        """Scan all configured directories and emit records."""
         since = (datetime.now(timezone.utc) - timedelta(days=self.days_back)).date()
         _prune_stale_totals(self._last_totals, since)
         total_records = 0
@@ -150,63 +336,21 @@ class CcusageCollector:
                 logger.debug("Skipping %s: no projects/ directory", claude_dir)
                 continue
             agent = _detect_agent(claude_dir)
-            data = _run_ccusage(claude_dir, since, self.timezone_name)
-            if data is None:
-                continue
-            total_records += self._process_ccusage_data(data, agent)
+            if agent == "antcc":
+                data = _scan_antcc_dir(claude_dir, since, self.timezone_name)
+                total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
+            else:
+                data = _run_ccusage(claude_dir, since, self.timezone_name)
+                if data is None:
+                    continue
+                total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
         if self.state_file:
             _save_last_totals(self.state_file, self._last_totals)
         logger.info("CcusageCollector: emitted %d records", total_records)
 
     def check_updates(self):
-        """Re-scan for new data (same as scan_history for ccusage)."""
+        """Re-scan for new data (same as scan_history)."""
         self.scan_history()
-
-    def _process_ccusage_data(self, data: dict, agent: str) -> int:
-        """Parse ccusage --instances JSON output and emit delta records."""
-        count = 0
-        projects = data.get("projects", {})
-        for project_key, entries in projects.items():
-            project = _extract_project(project_key)
-            for entry in entries:
-                date_str = entry.get("date", "")
-                for bd in entry.get("modelBreakdowns", []):
-                    model = bd.get("modelName", "unknown")
-                    current = {
-                        "input_tokens": bd.get("inputTokens", 0),
-                        "output_tokens": bd.get("outputTokens", 0),
-                        "cache_creation_tokens": bd.get("cacheCreationTokens", 0),
-                        "cache_read_tokens": bd.get("cacheReadTokens", 0),
-                    }
-                    key = (agent, project, model, date_str)
-                    last = self._last_totals.get(key)
-                    if last is None:
-                        delta = current
-                    else:
-                        delta = {
-                            field: max(current[field] - last.get(field, 0), 0)
-                            for field in _TOKEN_FIELDS
-                        }
-                    self._last_totals[key] = current
-
-                    has_delta = any(delta.get(f, 0) > 0 for f in _TOKEN_FIELDS)
-                    if not has_delta:
-                        continue
-
-                    record = {
-                        "timestamp": datetime.fromisoformat(date_str) if date_str else None,
-                        "model": model,
-                        "project": project,
-                        "input_tokens": delta["input_tokens"],
-                        "output_tokens": delta["output_tokens"],
-                        "cache_creation_tokens": delta["cache_creation_tokens"],
-                        "cache_read_tokens": delta["cache_read_tokens"],
-                        "cost_usd": bd.get("cost", 0) or 0,
-                    }
-                    if self.on_record:
-                        self.on_record(agent, record)
-                    count += 1
-        return count
 
 
 class CodexCollector:
@@ -238,7 +382,7 @@ class CodexCollector:
             data = _run_codex_usage(codex_dir, since, self.timezone_name)
             if data is None:
                 continue
-            total_records += self._process_codex_data(data, agent)
+            total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
         if self.state_file:
             _save_last_totals(self.state_file, self._last_totals)
         logger.info("CodexCollector: emitted %d records", total_records)
@@ -246,47 +390,3 @@ class CodexCollector:
     def check_updates(self):
         """Re-scan for new data (same as scan_history)."""
         self.scan_history()
-
-    def _process_codex_data(self, data: dict, agent: str) -> int:
-        """Parse @ccusage/codex daily JSON output and emit delta records."""
-        count = 0
-        for entry in data.get("daily", []):
-            date_str = entry.get("date", "")
-            for bd in entry.get("modelBreakdowns", []):
-                model = bd.get("modelName", "unknown")
-                project = "unknown"
-                current = {
-                    "input_tokens": bd.get("inputTokens", 0),
-                    "output_tokens": bd.get("outputTokens", 0),
-                    "cache_creation_tokens": bd.get("cacheCreationTokens", 0),
-                    "cache_read_tokens": bd.get("cacheReadTokens", 0),
-                }
-                key = (agent, project, model, date_str)
-                last = self._last_totals.get(key)
-                if last is None:
-                    delta = current
-                else:
-                    delta = {
-                        field: max(current[field] - last.get(field, 0), 0)
-                        for field in _TOKEN_FIELDS
-                    }
-                self._last_totals[key] = current
-
-                has_delta = any(delta.get(f, 0) > 0 for f in _TOKEN_FIELDS)
-                if not has_delta:
-                    continue
-
-                record = {
-                    "timestamp": datetime.fromisoformat(date_str) if date_str else None,
-                    "model": model,
-                    "project": project,
-                    "input_tokens": delta["input_tokens"],
-                    "output_tokens": delta["output_tokens"],
-                    "cache_creation_tokens": delta["cache_creation_tokens"],
-                    "cache_read_tokens": delta["cache_read_tokens"],
-                    "cost_usd": bd.get("cost", 0) or 0,
-                }
-                if self.on_record:
-                    self.on_record(agent, record)
-                count += 1
-        return count
