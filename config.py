@@ -19,4 +19,7 @@ def load_config():
         "source": os.environ.get("SOURCE", ""),
         "state_file": os.path.expanduser(os.environ.get("STATE_FILE", "~/.token-exporter/state.json")),
         "timezone": os.environ.get("TZ", "UTC"),
+        "pricing_override": os.path.expanduser(os.environ.get("PRICING_FILE", "/opt/token-exporter/pricing.json")),
+        "pricing_cache": os.path.expanduser(os.environ.get("PRICING_CACHE", "~/.token-exporter/pricing-cache.json")),
+        "pricing_ttl_secs": int(os.environ.get("PRICING_TTL_SECS", "86400")),
     }

@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from prometheus_client import start_http_server
 
+import pricing
 from config import load_config
 from metrics import record_usage, set_source
 from watcher import CcusageCollector, CodexCollector
@@ -41,6 +42,13 @@ def main():
 
     set_source(config["source"])
 
+    pricing_rates = pricing.load_pricing(
+        override_path=config["pricing_override"],
+        cache_path=config["pricing_cache"],
+        ttl=config["pricing_ttl_secs"],
+    )
+    logger.info("Loaded pricing for %d models", len(pricing_rates))
+
     collectors = []
 
     if config["claude_dirs"]:
@@ -65,6 +73,7 @@ def main():
             on_record=record_usage,
             state_file=codex_state,
             timezone_name=config["timezone"],
+            pricing_rates=pricing_rates,
         )
         logger.info("Scanning Codex history...")
         codex_collector.scan_history()

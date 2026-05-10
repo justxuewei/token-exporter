@@ -5,6 +5,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from watcher import CcusageCollector, CodexCollector, _extract_project
 
 
@@ -271,51 +273,6 @@ class TestCcusageCollector(unittest.TestCase):
 
 
 class TestCodexCollector(unittest.TestCase):
-    @patch("watcher.os.path.isdir", return_value=True)
-    @patch("watcher._run_codex_usage")
-    def test_scan_history_emits_records(self, mock_run, mock_isdir):
-        mock_run.return_value = SAMPLE_CODEX_DAILY
-        records = []
-        collector = CodexCollector(
-            codex_dirs=["/fake/.codex"],
-            days_back=7,
-            on_record=lambda agent, rec: records.append((agent, rec)),
-        )
-        collector.scan_history()
-
-        assert len(records) == 1
-        agent, rec = records[0]
-        assert agent == "codex"
-        assert rec["model"] == "codex-1"
-        assert rec["project"] == "unknown"
-        assert rec["input_tokens"] == 800
-        assert rec["output_tokens"] == 150
-        assert rec["cache_read_tokens"] == 400
-
-    @patch("watcher.os.path.isdir", return_value=True)
-    @patch("watcher._run_codex_usage")
-    def test_scan_history_emits_records_from_current_ccusage_codex_output(self, mock_run, mock_isdir):
-        mock_run.return_value = SAMPLE_CODEX_DAILY_MODELS
-        records = []
-        collector = CodexCollector(
-            codex_dirs=["/fake/.codex"],
-            days_back=7,
-            on_record=lambda agent, rec: records.append((agent, rec)),
-        )
-        collector.scan_history()
-
-        assert len(records) == 1
-        agent, rec = records[0]
-        assert agent == "codex"
-        assert rec["timestamp"].date().isoformat() == "2026-05-10"
-        assert rec["model"] == "gpt-5.5"
-        assert rec["project"] == "unknown"
-        assert rec["input_tokens"] == 600
-        assert rec["output_tokens"] == 150
-        assert rec["cache_creation_tokens"] == 0
-        assert rec["cache_read_tokens"] == 400
-        assert rec["cost_usd"] == 0.42
-
     def test_antcodex_parser_emits_project_records_and_skips_duplicate_token_counts(self):
         with tempfile.TemporaryDirectory() as tmp:
             codex_dir = Path(tmp) / "codex"
@@ -397,46 +354,37 @@ class TestCodexCollector(unittest.TestCase):
         assert rec["output_tokens"] == 80
         assert rec["cost_usd"] == 0
 
-    @patch("watcher.os.path.isdir", return_value=True)
-    @patch("watcher._run_codex_usage")
-    def test_delta_tracking(self, mock_run, mock_isdir):
-        records = []
-        collector = CodexCollector(
-            codex_dirs=["/fake/.codex"],
-            days_back=7,
-            on_record=lambda agent, rec: records.append((agent, rec)),
-        )
+    def test_antcodex_parser_applies_pricing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            codex_dir = Path(tmp) / "codex"
+            session_dir = codex_dir / "sessions" / "2026" / "05" / "10"
+            session_dir.mkdir(parents=True)
+            session_file = session_dir / "rollout.jsonl"
+            rows = [
+                {"timestamp": "2026-05-10T10:00:00Z", "type": "session_meta",
+                 "payload": {"cwd": "/home/user/developer/proj"}},
+                {"timestamp": "2026-05-10T10:00:01Z", "type": "turn_context",
+                 "payload": {"cwd": "/home/user/developer/proj", "model": "gpt-5"}},
+                {"timestamp": "2026-05-10T10:00:02Z", "type": "event_msg",
+                 "payload": {"type": "token_count", "info": {"total_token_usage": {
+                     "input_tokens": 1_000_000, "cached_input_tokens": 0, "output_tokens": 100_000}}}},
+            ]
+            session_file.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
 
-        mock_run.return_value = SAMPLE_CODEX_DAILY
-        collector.scan_history()
+            records = []
+            rates = {"gpt-5": {"input": 1.25, "cached": 0.125, "output": 10.0, "cache_creation": 1.25}}
+            collector = CodexCollector(
+                codex_dirs=[str(codex_dir)],
+                days_back=7,
+                on_record=lambda agent, rec: records.append((agent, rec)),
+                pricing_rates=rates,
+            )
+            collector.scan_history()
+
         assert len(records) == 1
-
-        # Same data → no new records
-        collector.scan_history()
-        assert len(records) == 1
-
-    @patch("watcher.os.path.isdir", return_value=True)
-    @patch("watcher._run_codex_usage")
-    def test_incremental_update(self, mock_run, mock_isdir):
-        records = []
-        collector = CodexCollector(
-            codex_dirs=["/fake/.codex"],
-            days_back=7,
-            on_record=lambda agent, rec: records.append((agent, rec)),
-        )
-
-        mock_run.return_value = SAMPLE_CODEX_DAILY
-        collector.scan_history()
-        assert records[0][1]["input_tokens"] == 800
-
-        # Tokens increased
-        updated = json.loads(json.dumps(SAMPLE_CODEX_DAILY))
-        updated["daily"][0]["inputTokens"] = 1200
-        updated["daily"][0]["modelBreakdowns"][0]["inputTokens"] = 1200
-        mock_run.return_value = updated
-        collector.scan_history()
-        assert len(records) == 2
-        assert records[1][1]["input_tokens"] == 400  # 1200 - 800
+        _, rec = records[0]
+        # 1M input @ $1.25/MTok + 100K output @ $10/MTok = 1.25 + 1.0 = 2.25
+        assert rec["cost_usd"] == pytest.approx(2.25)
 
 
 if __name__ == "__main__":

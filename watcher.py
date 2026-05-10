@@ -6,6 +6,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pricing
+
 logger = logging.getLogger("token-stats")
 
 
@@ -250,7 +252,7 @@ def _codex_delta(current: dict[str, int], previous: dict[str, int] | None) -> di
     return delta
 
 
-def _scan_antcodex_dir(codex_dir: str, since: date, timezone_name: str = "UTC") -> dict:
+def _scan_antcodex_dir(codex_dir: str, since: date, timezone_name: str = "UTC", pricing_rates: dict | None = None) -> dict:
     """Scan AntCodex JSONL token_count events with cumulative-counter dedup."""
     tz = ZoneInfo(timezone_name)
     since_local = since.isoformat()
@@ -315,9 +317,15 @@ def _scan_antcodex_dir(codex_dir: str, since: date, timezone_name: str = "UTC") 
                         "cost": 0,
                     })
                     cached = max(delta["cached"], 0)
-                    tokens["inputTokens"] += max(delta["input"] - cached, 0)
-                    tokens["outputTokens"] += max(delta["output"], 0)
+                    input_delta = max(delta["input"] - cached, 0)
+                    output_delta = max(delta["output"], 0)
+                    tokens["inputTokens"] += input_delta
+                    tokens["outputTokens"] += output_delta
                     tokens["cacheReadTokens"] += cached
+                    if pricing_rates:
+                        tokens["cost"] += pricing.cost_for(
+                            pricing_rates, model, input_delta, cached, output_delta
+                        )
         except OSError:
             continue
 
@@ -549,12 +557,13 @@ class CcusageCollector:
 class CodexCollector:
     """Collects token usage from Codex data directories via @ccusage/codex CLI."""
 
-    def __init__(self, codex_dirs: list[str], days_back: int = 7, on_record=None, state_file: str = "", timezone_name: str = "UTC"):
+    def __init__(self, codex_dirs: list[str], days_back: int = 7, on_record=None, state_file: str = "", timezone_name: str = "UTC", pricing_rates: dict | None = None):
         self.codex_dirs = codex_dirs
         self.days_back = days_back
         self.on_record = on_record
         self.state_file = state_file
         self.timezone_name = timezone_name
+        self.pricing_rates = pricing_rates or {}
         self._last_totals: dict[tuple, dict[str, float]] = {}
         if state_file:
             self._last_totals = _load_last_totals(state_file)
@@ -572,7 +581,7 @@ class CodexCollector:
                 logger.debug("Skipping %s: no sessions/ directory", codex_dir)
                 continue
             agent = _detect_agent(codex_dir)
-            data = _scan_antcodex_dir(codex_dir, since, self.timezone_name)
+            data = _scan_antcodex_dir(codex_dir, since, self.timezone_name, self.pricing_rates)
             total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
         if self.state_file:
             _save_last_totals(self.state_file, self._last_totals)
