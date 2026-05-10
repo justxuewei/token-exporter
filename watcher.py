@@ -204,6 +204,199 @@ def _scan_antcc_dir(base_dir: str, since: date, timezone_name: str = "UTC") -> d
 _TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens")
 
 
+def _parse_codex_usage_date(value: str) -> str:
+    """Return a stable YYYY-MM-DD date for @ccusage/codex daily output."""
+    if not value:
+        return ""
+
+    for fmt in ("%Y-%m-%d", "%b %d, %Y", "%B %d, %Y"):
+        try:
+            parsed = datetime.strptime(value, fmt)
+            return parsed.date().isoformat()
+        except ValueError:
+            pass
+
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed.date().isoformat()
+    except ValueError:
+        logger.warning("Could not parse @ccusage/codex date: %s", value)
+        return value
+
+
+def _project_from_cwd(cwd: str) -> str:
+    if not cwd:
+        return "unknown"
+    return os.path.basename(os.path.normpath(cwd)) or "unknown"
+
+
+def _codex_usage_totals(info: dict) -> dict[str, int]:
+    usage = info.get("total_token_usage") or {}
+    return {
+        "input": usage.get("input_tokens", 0) or 0,
+        "cached": usage.get("cached_input_tokens", 0) or 0,
+        "output": usage.get("output_tokens", 0) or 0,
+        "reasoning": usage.get("reasoning_output_tokens", 0) or 0,
+    }
+
+
+def _codex_delta(current: dict[str, int], previous: dict[str, int] | None) -> dict[str, int]:
+    if previous is None:
+        return current
+
+    delta = {field: current[field] - previous.get(field, 0) for field in current}
+    if any(value < 0 for value in delta.values()):
+        return current
+    return delta
+
+
+def _scan_antcodex_dir(codex_dir: str, since: date, timezone_name: str = "UTC") -> dict:
+    """Scan AntCodex JSONL token_count events with cumulative-counter dedup."""
+    tz = ZoneInfo(timezone_name)
+    since_local = since.isoformat()
+    sessions_dir = Path(codex_dir) / "sessions"
+    result: dict[str, dict] = {"projects": {}}
+    if not sessions_dir.is_dir():
+        return result
+
+    agg: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
+    for session_file in sorted(sessions_dir.rglob("*.jsonl")):
+        project = "unknown"
+        model = "unknown"
+        previous: dict[str, int] | None = None
+
+        try:
+            with open(session_file, "r") as f:
+                for line in f:
+                    try:
+                        obj = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    payload = obj.get("payload", {})
+                    entry_type = obj.get("type")
+                    if entry_type == "session_meta":
+                        project = _project_from_cwd(payload.get("cwd", "")) or project
+                        continue
+                    if entry_type == "turn_context":
+                        if payload.get("cwd"):
+                            project = _project_from_cwd(payload["cwd"])
+                        if payload.get("model"):
+                            model = payload["model"]
+                        continue
+                    if entry_type != "event_msg" or payload.get("type") != "token_count":
+                        continue
+
+                    info = payload.get("info") or {}
+                    current = _codex_usage_totals(info)
+                    if not any(current.values()):
+                        continue
+
+                    delta = _codex_delta(current, previous)
+                    previous = current
+                    if not any(value > 0 for value in delta.values()):
+                        continue
+
+                    ts_str = obj.get("timestamp", "")
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    except (ValueError, TypeError):
+                        continue
+                    date_str = ts.astimezone(tz).date().isoformat()
+                    if date_str < since_local:
+                        continue
+
+                    date_models = agg.setdefault(project, {}).setdefault(date_str, {})
+                    tokens = date_models.setdefault(model, {
+                        "inputTokens": 0,
+                        "outputTokens": 0,
+                        "cacheCreationTokens": 0,
+                        "cacheReadTokens": 0,
+                        "cost": 0,
+                    })
+                    cached = max(delta["cached"], 0)
+                    tokens["inputTokens"] += max(delta["input"] - cached, 0)
+                    tokens["outputTokens"] += max(delta["output"], 0)
+                    tokens["cacheReadTokens"] += cached
+        except OSError:
+            continue
+
+    for project, dates in sorted(agg.items()):
+        entries = []
+        for date_str, models in sorted(dates.items()):
+            entries.append({
+                "date": date_str,
+                "modelBreakdowns": [
+                    {"modelName": model, **tokens}
+                    for model, tokens in sorted(models.items())
+                ],
+            })
+        if entries:
+            result["projects"][f"-home-user-developer-{project}"] = entries
+    return result
+
+
+def _codex_model_breakdowns(entry: dict) -> list[dict]:
+    """Convert current @ccusage/codex models output into modelBreakdowns."""
+    if entry.get("modelBreakdowns"):
+        return entry["modelBreakdowns"]
+
+    models = entry.get("models")
+    if not isinstance(models, dict):
+        return []
+
+    total_cost = entry.get("costUSD", entry.get("totalCost", 0)) or 0
+    model_token_total = sum(
+        model.get("totalTokens", 0) or 0
+        for model in models.values()
+        if isinstance(model, dict)
+    )
+    breakdowns = []
+
+    for model_name, model in models.items():
+        if not isinstance(model, dict):
+            continue
+
+        raw_input = model.get("inputTokens", 0) or 0
+        cached_input = model.get("cachedInputTokens", 0) or 0
+        cache_creation = model.get("cacheCreationTokens", 0) or 0
+        total_tokens = model.get("totalTokens", 0) or 0
+        cost = model.get("costUSD", model.get("cost"))
+        if cost is None:
+            if len(models) == 1:
+                cost = total_cost
+            elif total_cost and model_token_total:
+                cost = total_cost * (total_tokens / model_token_total)
+            else:
+                cost = 0
+
+        breakdowns.append({
+            "modelName": model_name,
+            "inputTokens": max(raw_input - cached_input - cache_creation, 0),
+            "outputTokens": model.get("outputTokens", 0) or 0,
+            "cacheCreationTokens": cache_creation,
+            "cacheReadTokens": cached_input,
+            "cost": cost,
+        })
+
+    return breakdowns
+
+
+def _normalize_codex_usage_data(data: dict) -> dict:
+    """Normalize @ccusage/codex output before feeding the shared daily parser."""
+    if "daily" not in data:
+        return data
+
+    normalized = dict(data)
+    normalized["daily"] = []
+    for entry in data["daily"]:
+        normalized_entry = dict(entry)
+        normalized_entry["date"] = _parse_codex_usage_date(entry.get("date", ""))
+        normalized_entry["modelBreakdowns"] = _codex_model_breakdowns(entry)
+        normalized["daily"].append(normalized_entry)
+    return normalized
+
+
 def _load_last_totals(path: str) -> dict[tuple, dict]:
     """Load last-seen totals from a JSON state file."""
     try:
@@ -379,7 +572,12 @@ class CodexCollector:
                 logger.debug("Skipping %s: no sessions/ directory", codex_dir)
                 continue
             agent = _detect_agent(codex_dir)
-            data = _run_codex_usage(codex_dir, since, self.timezone_name)
+            if agent == "antcodex":
+                data = _scan_antcodex_dir(codex_dir, since, self.timezone_name)
+            else:
+                data = _run_codex_usage(codex_dir, since, self.timezone_name)
+                if data is not None:
+                    data = _normalize_codex_usage_data(data)
             if data is None:
                 continue
             total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
