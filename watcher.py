@@ -572,14 +572,7 @@ class CodexCollector:
                 logger.debug("Skipping %s: no sessions/ directory", codex_dir)
                 continue
             agent = _detect_agent(codex_dir)
-            if agent == "antcodex":
-                data = _scan_antcodex_dir(codex_dir, since, self.timezone_name)
-            else:
-                data = _run_codex_usage(codex_dir, since, self.timezone_name)
-                if data is not None:
-                    data = _normalize_codex_usage_data(data)
-            if data is None:
-                continue
+            data = _scan_antcodex_dir(codex_dir, since, self.timezone_name)
             total_records += _process_ccusage_data(data, agent, self.on_record, self._last_totals)
         if self.state_file:
             _save_last_totals(self.state_file, self._last_totals)
