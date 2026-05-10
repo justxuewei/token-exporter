@@ -1,56 +1,15 @@
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+import subprocess
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 logger = logging.getLogger("token-stats")
 
-PROJECTS_DIR = "projects"
-SESSIONS_DIR = "sessions"
-GLOB_PATTERN = "**/*.jsonl"
-
-
-def find_jsonl_files(claude_dirs: list[str]) -> dict[str, tuple[str, str]]:
-    """Find all JSONL files and return {filepath: (agent_name, project)}."""
-    files = {}
-    for base_dir in claude_dirs:
-        agent = _detect_agent(base_dir)
-        # Claude Code / AntCC: projects/ directory
-        projects_dir = os.path.join(base_dir, PROJECTS_DIR)
-        if os.path.isdir(projects_dir):
-            for p in Path(projects_dir).rglob("*.jsonl"):
-                project = _extract_project(str(p), projects_dir)
-                files[str(p)] = (agent, project)
-        # Codex: sessions/ directory
-        sessions_dir = os.path.join(base_dir, SESSIONS_DIR)
-        if os.path.isdir(sessions_dir):
-            for p in Path(sessions_dir).rglob("*.jsonl"):
-                files[str(p)] = (agent, "unknown")
-    return files
-
-
-def _extract_project(filepath: str, projects_dir: str) -> str:
-    """Extract project name from a Claude Code / AntCC JSONL file path.
-
-    The directory under projects/ encodes the working directory with dashes
-    replacing slashes, e.g. '-home-nxw-developer-token-exporter'.
-    The encoded path is /home/<user>/<rest>... so we strip the first 3
-    segments (home, user, developer) and the remainder is the project name.
-    """
-    rel = os.path.relpath(filepath, projects_dir)
-    project_dir = rel.split(os.sep)[0]
-    # Strip leading dash
-    stripped = project_dir.lstrip("-")
-    parts = stripped.split("-")
-    # /home/<user>/<project...> → skip home(0), user(1), developer(2)
-    if len(parts) >= 3:
-        return "-".join(parts[3:]) or stripped
-    return stripped
-
 
 def _detect_agent(base_dir: str) -> str:
-    # Check full path to distinguish between ~/.codex and ~/.codefuse/engine/codex
+    """Detect agent type from the base directory path."""
     if base_dir.endswith("/.codex") or "/.codex/" in base_dir:
         return "codex"
     if "/codex" in base_dir:
@@ -58,7 +17,6 @@ def _detect_agent(base_dir: str) -> str:
     base = os.path.basename(os.path.normpath(base_dir))
     if base.lower() == "cc":
         return "antcc"
-    # Match exactly "codefuse" or ".codefuse" (not "codefuse-cc" etc.)
     if base.lower() in ("codefuse", ".codefuse"):
         return "antcc"
     if base.lower() == ".claude" or base == "claude":
@@ -66,367 +24,269 @@ def _detect_agent(base_dir: str) -> str:
     return "unknown"
 
 
-def parse_line(line: str) -> dict | None:
-    """Parse a Claude Code / AntCC JSONL line into a usage record."""
-    line = line.strip()
-    if not line:
-        return None
-    try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
-        return None
+def _extract_project(project_key: str) -> str:
+    """Extract project name from a ccusage --instances project key.
 
-    usage = obj.get("message", {}).get("usage")
-    if not usage:
-        return None
-
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-    cache_creation_tokens = usage.get("cache_creation_input_tokens", 0) or 0
-    cache_read_tokens = usage.get("cache_read_input_tokens", 0) or 0
-    if not input_tokens and not output_tokens and not cache_creation_tokens and not cache_read_tokens:
-        return None
-
-    msg_id = obj.get("message", {}).get("id", "")
-    request_id = obj.get("requestId", "")
-    dedup_key = f"{msg_id}:{request_id}" if msg_id and request_id else None
-
-    ts_str = obj.get("timestamp", "")
-    timestamp = None
-    if ts_str:
-        try:
-            timestamp = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-        except (ValueError, TypeError):
-            pass
-
-    return {
-        "timestamp": timestamp,
-        "model": obj.get("message", {}).get("model", "unknown") or "unknown",
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cache_creation_tokens": cache_creation_tokens,
-        "cache_read_tokens": cache_read_tokens,
-        "cost_usd": obj.get("costUSD", 0) or 0,
-        "dedup_key": dedup_key,
-    }
-
-
-def parse_codex_line(line: str) -> dict | None:
-    """Parse a Codex JSONL line.
-
-    Returns a dict with _type 'model' (model update) or 'usage' (token record).
-    Codex uses cumulative token counters in total_token_usage, so callers
-    must compute deltas between consecutive entries.
+    The key encodes the working directory with dashes replacing slashes,
+    e.g. '-home-nxw-developer-token-exporter'.
+    Strip the first 3 segments (home, user, developer) and the remainder
+    is the project name.
     """
-    line = line.strip()
-    if not line:
-        return None
+    stripped = project_key.lstrip("-")
+    parts = stripped.split("-")
+    if len(parts) >= 3:
+        return "-".join(parts[3:]) or stripped
+    return stripped
+
+
+def _run_ccusage(claude_dir: str, since: date, timezone_name: str = "UTC") -> dict | None:
+    """Run ccusage daily --json --offline --timezone <tz> --instances and return parsed JSON."""
+    cmd = [
+        "ccusage", "daily", "--json", "--offline",
+        "--timezone", timezone_name,
+        "--instances",
+        "--since", since.strftime("%Y%m%d"),
+    ]
+    env = {**os.environ, "CLAUDE_CONFIG_DIR": claude_dir}
     try:
-        obj = json.loads(line)
-    except json.JSONDecodeError:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60)
+        if result.returncode != 0:
+            logger.error("ccusage failed for %s: %s", claude_dir, result.stderr.strip())
+            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error("ccusage error for %s: %s", claude_dir, e)
         return None
 
-    entry_type = obj.get("type")
 
-    if entry_type == "turn_context":
-        payload = obj.get("payload", {})
-        model = payload.get("model")
-        cwd = payload.get("cwd")
-        result = {"_type": "model"}
-        if model:
-            result["model"] = model
-        if cwd:
-            result["cwd"] = cwd
-        return result if (model or cwd) else None
-
-    if entry_type == "event_msg":
-        payload = obj.get("payload", {})
-        if payload.get("type") != "token_count":
+def _run_codex_usage(codex_dir: str, since: date, timezone_name: str = "UTC") -> dict | None:
+    """Run @ccusage/codex daily --json --offline --timezone <tz> and return parsed JSON."""
+    cmd = [
+        "npx", "@ccusage/codex", "daily", "--json", "--offline",
+        "--timezone", timezone_name,
+        "--since", since.strftime("%Y-%m-%d"),
+    ]
+    env = {**os.environ, "CODEX_HOME": codex_dir}
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=60)
+        if result.returncode != 0:
+            logger.error("ccusage codex failed for %s: %s", codex_dir, result.stderr.strip())
             return None
-        info = payload.get("info")
-        if not info:
-            return None
+        return json.loads(result.stdout)
+    except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+        logger.error("ccusage codex error for %s: %s", codex_dir, e)
+        return None
 
-        total_usage = info.get("total_token_usage") or {}
-        last_usage = info.get("last_token_usage")
-        has_last_usage = isinstance(last_usage, dict)
-        if not has_last_usage:
-            last_usage = {}
 
-        ts_str = obj.get("timestamp", "")
-        timestamp = None
-        if ts_str:
-            try:
-                timestamp = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-            except (ValueError, TypeError):
-                pass
+# Token fields to track for delta computation
+_TOKEN_FIELDS = ("input_tokens", "output_tokens", "cache_creation_tokens", "cache_read_tokens")
 
-        model = info.get("model") or None
 
-        return {
-            "_type": "usage",
-            "timestamp": timestamp,
-            "model": model,
-            "total_input_tokens": total_usage.get("input_tokens", 0) or 0,
-            "total_output_tokens": total_usage.get("output_tokens", 0) or 0,
-            "total_cached_input_tokens": (
-                total_usage.get("cached_input_tokens", total_usage.get("cache_read_input_tokens", 0)) or 0
-            ),
-            "total_reasoning_output_tokens": total_usage.get("reasoning_output_tokens", 0) or 0,
-            "has_last_usage": has_last_usage,
-            "last_input_tokens": last_usage.get("input_tokens", 0) or 0,
-            "last_output_tokens": last_usage.get("output_tokens", 0) or 0,
-            "last_cached_input_tokens": (
-                last_usage.get("cached_input_tokens", last_usage.get("cache_read_input_tokens", 0)) or 0
-            ),
-            "last_reasoning_output_tokens": last_usage.get("reasoning_output_tokens", 0) or 0,
+def _load_last_totals(path: str) -> dict[tuple, dict]:
+    """Load last-seen totals from a JSON state file."""
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Could not load state from %s: %s", path, e)
+        return {}
+    totals = {}
+    for key_str, values in data.get("last_totals", {}).items():
+        key = tuple(key_str.split("\x00"))
+        totals[key] = {k: v for k, v in values.items() if k in _TOKEN_FIELDS}
+    return totals
+
+
+def _save_last_totals(path: str, totals: dict[tuple, dict]) -> None:
+    """Persist last-seen totals to a JSON state file."""
+    state_path = Path(path)
+    tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+    serializable = {
+        "last_totals": {
+            "\x00".join(key): values for key, values in totals.items()
         }
+    }
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_path, "w") as f:
+            json.dump(serializable, f, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp_path, state_path)
+    except OSError as e:
+        logger.error("Could not save state to %s: %s", path, e)
 
-    return None
+
+def _prune_stale_totals(totals: dict[tuple, dict], cutoff: date) -> None:
+    """Remove entries with dates older than cutoff."""
+    stale_keys = [k for k in totals if len(k) >= 4 and k[3] < cutoff.isoformat()]
+    for k in stale_keys:
+        del totals[k]
 
 
-class JSONLWatcher:
-    def __init__(self, claude_dirs: list[str], days_back: int = 7, state_file: str = "", on_record=None):
+class CcusageCollector:
+    """Collects token usage from Claude Code / AntCC data directories via ccusage CLI."""
+
+    def __init__(self, claude_dirs: list[str], days_back: int = 7, on_record=None, state_file: str = "", timezone_name: str = "UTC"):
         self.claude_dirs = claude_dirs
         self.days_back = days_back
-        self.state_file = state_file
         self.on_record = on_record
-        self._file_positions: dict[str, int] = {}
-        self._seen_keys: set[str] = set()
-        self._codex_state: dict[str, dict] = {}
-        self._load_state()
+        self.state_file = state_file
+        self.timezone_name = timezone_name
+        self._last_totals: dict[tuple, dict[str, float]] = {}
+        if state_file:
+            self._last_totals = _load_last_totals(state_file)
+            logger.info("Loaded CcusageCollector state from %s (%d entries)", state_file, len(self._last_totals))
 
     def scan_history(self):
-        """Read existing JSONL files to populate historical data.
-
-        Prometheus counters are process-local. Even when a state file exists,
-        startup must replay the scanned history so metrics are rehydrated after
-        an exporter restart.
-        """
-        cutoff = datetime.now(timezone.utc) - timedelta(days=self.days_back)
-        files = find_jsonl_files(self.claude_dirs)
-        logger.info("Scanning %d JSONL files for history...", len(files))
-        self._file_positions = {}
-        self._seen_keys = set()
-        self._codex_state = {}
-        count = 0
-        for filepath, (agent, project) in files.items():
-            pos, n = self._read_file(filepath, agent, project, cutoff)
-            self._file_positions[filepath] = pos
-            count += n
-        logger.info("Scanned %d historical records", count)
-        self._save_state()
+        """Run ccusage for all configured directories and emit records."""
+        since = (datetime.now(timezone.utc) - timedelta(days=self.days_back)).date()
+        _prune_stale_totals(self._last_totals, since)
+        total_records = 0
+        for claude_dir in self.claude_dirs:
+            if not os.path.isdir(claude_dir):
+                continue
+            if not os.path.isdir(os.path.join(claude_dir, "projects")):
+                logger.debug("Skipping %s: no projects/ directory", claude_dir)
+                continue
+            agent = _detect_agent(claude_dir)
+            data = _run_ccusage(claude_dir, since, self.timezone_name)
+            if data is None:
+                continue
+            total_records += self._process_ccusage_data(data, agent)
+        if self.state_file:
+            _save_last_totals(self.state_file, self._last_totals)
+        logger.info("CcusageCollector: emitted %d records", total_records)
 
     def check_updates(self):
-        """Check for new lines in known files and any new files."""
-        files = find_jsonl_files(self.claude_dirs)
+        """Re-scan for new data (same as scan_history for ccusage)."""
+        self.scan_history()
 
-        for filepath, (agent, project) in files.items():
-            if filepath not in self._file_positions:
-                self._file_positions[filepath] = 0
-            pos, _ = self._read_file(filepath, agent, project, None)
-            self._file_positions[filepath] = pos
-
-        # Clean up deleted files
-        gone = set(self._file_positions.keys()) - set(files.keys())
-        for f in gone:
-            del self._file_positions[f]
-            self._codex_state.pop(f, None)
-
-        self._save_state()
-
-    def _load_state(self):
-        if not self.state_file:
-            return
-        try:
-            with open(self.state_file, "r") as f:
-                state = json.load(f)
-        except FileNotFoundError:
-            return
-        except (OSError, json.JSONDecodeError) as e:
-            logger.warning("Could not load watcher state from %s: %s", self.state_file, e)
-            return
-
-        self._file_positions = {
-            str(path): int(pos)
-            for path, pos in state.get("file_positions", {}).items()
-            if isinstance(pos, int | float)
-        }
-        self._seen_keys = set(str(key) for key in state.get("seen_keys", []))
-        self._codex_state = {
-            str(path): value
-            for path, value in state.get("codex_state", {}).items()
-            if isinstance(value, dict)
-        }
-        logger.info(
-            "Loaded watcher state from %s (%d files, %d dedup keys)",
-            self.state_file,
-            len(self._file_positions),
-            len(self._seen_keys),
-        )
-
-    def _save_state(self):
-        if not self.state_file:
-            return
-
-        state_path = Path(self.state_file)
-        tmp_path = state_path.with_name(f"{state_path.name}.tmp")
-        state = {
-            "version": 1,
-            "file_positions": self._file_positions,
-            "seen_keys": sorted(self._seen_keys),
-            "codex_state": self._codex_state,
-        }
-
-        try:
-            state_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(tmp_path, "w") as f:
-                json.dump(state, f, separators=(",", ":"), sort_keys=True)
-            os.replace(tmp_path, state_path)
-        except OSError as e:
-            logger.error("Could not save watcher state to %s: %s", self.state_file, e)
-
-    def _read_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
-        """Read new lines from a file starting from tracked position.
-        Returns (new_position, record_count)."""
-        if agent in ("codex", "antcodex"):
-            return self._read_codex_file(filepath, agent, project, cutoff)
-        return self._read_claude_file(filepath, agent, project, cutoff)
-
-    def _read_claude_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
-        """Read Claude Code / AntCC JSONL file."""
+    def _process_ccusage_data(self, data: dict, agent: str) -> int:
+        """Parse ccusage --instances JSON output and emit delta records."""
         count = 0
-        try:
-            size = os.path.getsize(filepath)
-        except OSError:
-            return self._file_positions.get(filepath, 0), 0
-
-        start_pos = self._file_positions.get(filepath, 0)
-        if start_pos > size:
-            start_pos = 0
-
-        if start_pos == size:
-            return size, 0
-
-        try:
-            with open(filepath, "r") as f:
-                f.seek(start_pos)
-                for line in f:
-                    record = parse_line(line)
-                    if record is None:
-                        continue
-                    if cutoff and record["timestamp"] and record["timestamp"] < cutoff:
-                        continue
-                    if record["dedup_key"]:
-                        if record["dedup_key"] in self._seen_keys:
-                            continue
-                        self._seen_keys.add(record["dedup_key"])
-
-                    record["project"] = project
-                    if self.on_record:
-                        self.on_record(agent, record)
-                    count += 1
-                return f.tell(), count
-        except OSError as e:
-            logger.error("Error reading %s: %s", filepath, e)
-            return start_pos, 0
-
-    def _read_codex_file(self, filepath: str, agent: str, project: str, cutoff: datetime | None) -> tuple[int, int]:
-        """Read Codex JSONL file with cumulative counter delta computation."""
-        count = 0
-        try:
-            size = os.path.getsize(filepath)
-        except OSError:
-            return self._file_positions.get(filepath, 0), 0
-
-        start_pos = self._file_positions.get(filepath, 0)
-        if start_pos > size:
-            start_pos = 0
-
-        if start_pos == size:
-            return size, 0
-
-        state = self._codex_state.get(filepath, {
-            "model": "unknown",
-            "project": "unknown",
-            "prev_totals": None,
-        })
-
-        try:
-            with open(filepath, "r") as f:
-                f.seek(start_pos)
-                for line in f:
-                    parsed = parse_codex_line(line)
-                    if parsed is None:
-                        continue
-
-                    if parsed["_type"] == "model":
-                        if "model" in parsed:
-                            state["model"] = parsed["model"]
-                        if "cwd" in parsed:
-                            state["project"] = os.path.basename(parsed["cwd"])
-                        continue
-
-                    model = parsed["model"] or state["model"]
-
-                    cur = {
-                        "input": parsed["total_input_tokens"],
-                        "output": parsed["total_output_tokens"],
-                        "cached": parsed["total_cached_input_tokens"],
-                        "reasoning": parsed["total_reasoning_output_tokens"],
+        projects = data.get("projects", {})
+        for project_key, entries in projects.items():
+            project = _extract_project(project_key)
+            for entry in entries:
+                date_str = entry.get("date", "")
+                for bd in entry.get("modelBreakdowns", []):
+                    model = bd.get("modelName", "unknown")
+                    current = {
+                        "input_tokens": bd.get("inputTokens", 0),
+                        "output_tokens": bd.get("outputTokens", 0),
+                        "cache_creation_tokens": bd.get("cacheCreationTokens", 0),
+                        "cache_read_tokens": bd.get("cacheReadTokens", 0),
                     }
-
-                    prev = state.get("prev_totals")
-                    if parsed["has_last_usage"]:
-                        delta_input = parsed["last_input_tokens"]
-                        delta_output = parsed["last_output_tokens"]
-                        delta_cached = parsed["last_cached_input_tokens"]
-                        delta_reasoning = parsed["last_reasoning_output_tokens"]
-                    elif prev is not None:
-                        delta_input = max(cur["input"] - prev["input"], 0)
-                        delta_output = max(cur["output"] - prev["output"], 0)
-                        delta_cached = max(cur["cached"] - prev["cached"], 0)
-                        delta_reasoning = max(cur["reasoning"] - prev["reasoning"], 0)
+                    key = (agent, project, model, date_str)
+                    last = self._last_totals.get(key)
+                    if last is None:
+                        delta = current
                     else:
-                        delta_input = cur["input"]
-                        delta_output = cur["output"]
-                        delta_cached = cur["cached"]
-                        delta_reasoning = cur["reasoning"]
+                        delta = {
+                            field: max(current[field] - last.get(field, 0), 0)
+                            for field in _TOKEN_FIELDS
+                        }
+                    self._last_totals[key] = current
 
-                    state["prev_totals"] = cur
-
-                    if delta_input <= 0 and delta_output <= 0 and delta_cached <= 0 and delta_reasoning <= 0:
+                    has_delta = any(delta.get(f, 0) > 0 for f in _TOKEN_FIELDS)
+                    if not has_delta:
                         continue
 
-                    # Codex input_tokens includes cached_input_tokens, so
-                    # subtract cached to get the non-cached (full-price) portion.
-                    # This makes input_tokens and cache_read_tokens disjoint,
-                    # matching Claude Code/AntCC semantics.
-                    input_tokens = max(delta_input, 0)
-                    cache_read_tokens = min(max(delta_cached, 0), input_tokens)
                     record = {
-                        "timestamp": parsed["timestamp"],
+                        "timestamp": datetime.fromisoformat(date_str) if date_str else None,
                         "model": model,
-                        "project": state["project"],
-                        "input_tokens": input_tokens - cache_read_tokens,
-                        # Codex reasoning_output_tokens is a breakdown of
-                        # output_tokens, not an additional billable amount.
-                        "output_tokens": max(delta_output, 0),
-                        "cache_creation_tokens": 0,
-                        "cache_read_tokens": cache_read_tokens,
-                        "cost_usd": 0,
-                        "dedup_key": None,
+                        "project": project,
+                        "input_tokens": delta["input_tokens"],
+                        "output_tokens": delta["output_tokens"],
+                        "cache_creation_tokens": delta["cache_creation_tokens"],
+                        "cache_read_tokens": delta["cache_read_tokens"],
+                        "cost_usd": bd.get("cost", 0) or 0,
                     }
-
-                    if cutoff and record["timestamp"] and record["timestamp"] < cutoff:
-                        continue
-
                     if self.on_record:
                         self.on_record(agent, record)
                     count += 1
+        return count
 
-                self._codex_state[filepath] = state
-                return f.tell(), count
-        except OSError as e:
-            logger.error("Error reading %s: %s", filepath, e)
-            return start_pos, 0
+
+class CodexCollector:
+    """Collects token usage from Codex data directories via @ccusage/codex CLI."""
+
+    def __init__(self, codex_dirs: list[str], days_back: int = 7, on_record=None, state_file: str = "", timezone_name: str = "UTC"):
+        self.codex_dirs = codex_dirs
+        self.days_back = days_back
+        self.on_record = on_record
+        self.state_file = state_file
+        self.timezone_name = timezone_name
+        self._last_totals: dict[tuple, dict[str, float]] = {}
+        if state_file:
+            self._last_totals = _load_last_totals(state_file)
+            logger.info("Loaded CodexCollector state from %s (%d entries)", state_file, len(self._last_totals))
+
+    def scan_history(self):
+        """Run @ccusage/codex for all configured directories and emit records."""
+        since = (datetime.now(timezone.utc) - timedelta(days=self.days_back)).date()
+        _prune_stale_totals(self._last_totals, since)
+        total_records = 0
+        for codex_dir in self.codex_dirs:
+            if not os.path.isdir(codex_dir):
+                continue
+            if not os.path.isdir(os.path.join(codex_dir, "sessions")):
+                logger.debug("Skipping %s: no sessions/ directory", codex_dir)
+                continue
+            agent = _detect_agent(codex_dir)
+            data = _run_codex_usage(codex_dir, since, self.timezone_name)
+            if data is None:
+                continue
+            total_records += self._process_codex_data(data, agent)
+        if self.state_file:
+            _save_last_totals(self.state_file, self._last_totals)
+        logger.info("CodexCollector: emitted %d records", total_records)
+
+    def check_updates(self):
+        """Re-scan for new data (same as scan_history)."""
+        self.scan_history()
+
+    def _process_codex_data(self, data: dict, agent: str) -> int:
+        """Parse @ccusage/codex daily JSON output and emit delta records."""
+        count = 0
+        for entry in data.get("daily", []):
+            date_str = entry.get("date", "")
+            for bd in entry.get("modelBreakdowns", []):
+                model = bd.get("modelName", "unknown")
+                project = "unknown"
+                current = {
+                    "input_tokens": bd.get("inputTokens", 0),
+                    "output_tokens": bd.get("outputTokens", 0),
+                    "cache_creation_tokens": bd.get("cacheCreationTokens", 0),
+                    "cache_read_tokens": bd.get("cacheReadTokens", 0),
+                }
+                key = (agent, project, model, date_str)
+                last = self._last_totals.get(key)
+                if last is None:
+                    delta = current
+                else:
+                    delta = {
+                        field: max(current[field] - last.get(field, 0), 0)
+                        for field in _TOKEN_FIELDS
+                    }
+                self._last_totals[key] = current
+
+                has_delta = any(delta.get(f, 0) > 0 for f in _TOKEN_FIELDS)
+                if not has_delta:
+                    continue
+
+                record = {
+                    "timestamp": datetime.fromisoformat(date_str) if date_str else None,
+                    "model": model,
+                    "project": project,
+                    "input_tokens": delta["input_tokens"],
+                    "output_tokens": delta["output_tokens"],
+                    "cache_creation_tokens": delta["cache_creation_tokens"],
+                    "cache_read_tokens": delta["cache_read_tokens"],
+                    "cost_usd": bd.get("cost", 0) or 0,
+                }
+                if self.on_record:
+                    self.on_record(agent, record)
+                count += 1
+        return count

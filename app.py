@@ -6,7 +6,7 @@ from prometheus_client import start_http_server
 
 from config import load_config
 from metrics import record_usage, set_source
-from watcher import JSONLWatcher
+from watcher import CcusageCollector, CodexCollector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger("token-stats")
@@ -27,9 +27,10 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 
-def poll_loop(watcher: JSONLWatcher, interval: int):
-    watcher.check_updates()
-    timer = threading.Timer(interval, poll_loop, args=[watcher, interval])
+def poll_loop(collectors: list, interval: int):
+    for collector in collectors:
+        collector.check_updates()
+    timer = threading.Timer(interval, poll_loop, args=[collectors, interval])
     timer.daemon = True
     timer.start()
 
@@ -40,16 +41,35 @@ def main():
 
     set_source(config["source"])
 
-    watcher = JSONLWatcher(
-        claude_dirs=config["claude_dirs"],
-        days_back=config["days_back"],
-        state_file=config["state_file"],
-        on_record=record_usage,
-    )
+    collectors = []
 
-    logger.info("Scanning historical data...")
-    watcher.scan_history()
-    logger.info("Historical scan complete")
+    if config["claude_dirs"]:
+        cc_state = config["state_file"].replace(".json", "-ccusage.json") if config["state_file"] else ""
+        cc_collector = CcusageCollector(
+            claude_dirs=config["claude_dirs"],
+            days_back=config["days_back"],
+            on_record=record_usage,
+            state_file=cc_state,
+            timezone_name=config["timezone"],
+        )
+        logger.info("Scanning Claude Code / AntCC history...")
+        cc_collector.scan_history()
+        logger.info("Claude Code / AntCC scan complete")
+        collectors.append(cc_collector)
+
+    if config["codex_dirs"]:
+        codex_state = config["state_file"].replace(".json", "-codex.json") if config["state_file"] else ""
+        codex_collector = CodexCollector(
+            codex_dirs=config["codex_dirs"],
+            days_back=config["days_back"],
+            on_record=record_usage,
+            state_file=codex_state,
+            timezone_name=config["timezone"],
+        )
+        logger.info("Scanning Codex history...")
+        codex_collector.scan_history()
+        logger.info("Codex scan complete")
+        collectors.append(codex_collector)
 
     start_http_server(config["listen_port"])
     logger.info("Prometheus metrics on :%d/metrics", config["listen_port"])
@@ -59,8 +79,8 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     logger.info("Health endpoint on :%d/health", health_port)
 
-    logger.info("Watching for new JSONL entries every %ds...", config["watch_interval"])
-    poll_loop(watcher, config["watch_interval"])
+    logger.info("Watching for updates every %ds...", config["watch_interval"])
+    poll_loop(collectors, config["watch_interval"])
 
     threading.Event().wait()
 
