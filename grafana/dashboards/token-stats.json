@@ -18,7 +18,7 @@
       },
       "targets": [
         {
-          "expr": "(clamp_min(sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) + (clamp_min(sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) + (clamp_min(sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) + (clamp_min(sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0))",
+          "expr": "clamp_min((sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) + clamp_min((sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) + clamp_min((sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) + clamp_min((sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0)",
           "legendFormat": "Total Tokens",
           "refId": "A"
         }
@@ -40,7 +40,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)",
+          "expr": "clamp_min((sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0)",
           "legendFormat": "Input Tokens",
           "refId": "A"
         }
@@ -62,7 +62,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)",
+          "expr": "clamp_min((sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0)",
           "legendFormat": "Output Tokens",
           "refId": "A"
         }
@@ -84,7 +84,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)",
+          "expr": "clamp_min((sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0)",
           "legendFormat": "Cache Read",
           "refId": "A"
         }
@@ -106,7 +106,7 @@
       },
       "targets": [
         {
-          "expr": "clamp_min(sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)",
+          "expr": "clamp_min((sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0)",
           "legendFormat": "Cache Creation",
           "refId": "A"
         }
@@ -128,7 +128,7 @@
       },
       "targets": [
         {
-          "expr": "(clamp_min(sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) / clamp_min((clamp_min(sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) + (clamp_min(sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)) + (clamp_min(sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) - sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)), 0) or vector(0)), 1)",
+          "expr": "clamp_min((sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) / clamp_min(clamp_min((sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) + clamp_min((sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0) + clamp_min((sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or vector(0)) - (sum(last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or vector(0)), 0), 1)",
           "legendFormat": "Cache Hit Rate",
           "refId": "A"
         }
