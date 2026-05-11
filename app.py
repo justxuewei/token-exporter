@@ -1,4 +1,8 @@
+import json
 import logging
+import os
+import signal
+import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -6,7 +10,7 @@ from prometheus_client import start_http_server
 
 import pricing
 from config import load_config
-from metrics import record_usage, set_source
+from metrics import load_state, record_usage, restore_state, save_state, set_source
 from watcher import CcusageCollector, CodexCollector
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -28,12 +32,76 @@ class HealthHandler(BaseHTTPRequestHandler):
         pass
 
 
-def poll_loop(collectors: list, interval: int):
+def poll_loop(collectors: list, interval: int, counter_state_file: str):
     for collector in collectors:
         collector.check_updates()
-    timer = threading.Timer(interval, poll_loop, args=[collectors, interval])
+        if counter_state_file:
+            save_state(counter_state_file)
+    timer = threading.Timer(interval, poll_loop, args=[collectors, interval, counter_state_file])
     timer.daemon = True
     timer.start()
+
+
+def _install_shutdown_handlers(counter_state_file: str) -> None:
+    """Flush counter state on SIGTERM/SIGINT.
+
+    SIGKILL cannot be intercepted; on SIGKILL the snapshot is at most one
+    poll-cycle stale, which is the unavoidable bound.
+    """
+    if not counter_state_file:
+        return
+
+    def _handler(signum, _frame):
+        logger.info("Received signal %d, flushing counter state", signum)
+        try:
+            save_state(counter_state_file)
+        finally:
+            sys.exit(0)
+
+    signal.signal(signal.SIGTERM, _handler)
+    signal.signal(signal.SIGINT, _handler)
+
+
+def _bootstrap_from_last_totals(last_totals_files: list[str], source: str) -> dict:
+    """Rebuild a counter/daily snapshot from existing per-collector last_totals.
+
+    Used on first deploy of the persisted-counter fix when no counter snapshot
+    file exists yet. Without this, the first restart after the upgrade still
+    shows zero historic tokens; with it, we recover everything except `cost`
+    (last_totals does not record cost).
+    """
+    cumulative: dict[tuple, dict[str, float]] = {}
+    daily: dict[tuple, dict[str, float]] = {}
+    field_map = {
+        "input": "input_tokens",
+        "output": "output_tokens",
+        "cache_creation": "cache_creation_tokens",
+        "cache_read": "cache_read_tokens",
+    }
+    for path in last_totals_files:
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+        except (FileNotFoundError, OSError, json.JSONDecodeError):
+            continue
+        for key_str, values in data.get("last_totals", {}).items():
+            parts = tuple(key_str.split("\x00"))
+            if len(parts) != 4:
+                continue
+            agent, project, model, date_str = parts
+            cum_key = (source, agent, project, model)
+            cum = cumulative.setdefault(cum_key, {f: 0.0 for f in (*field_map, "cost")})
+            d_key = (source, agent, project, model, date_str)
+            d = daily.setdefault(d_key, {f: 0.0 for f in (*field_map, "cost")})
+            for short, long in field_map.items():
+                v = float(values.get(long, 0) or 0)
+                cum[short] += v
+                d[short] += v
+    return {
+        "schema_version": 1,
+        "cumulative": [{"key": list(k), "values": v} for k, v in cumulative.items()],
+        "daily": [{"key": list(k), "values": v} for k, v in daily.items()],
+    }
 
 
 def main():
@@ -41,6 +109,23 @@ def main():
     logger.info("Config: %s", config)
 
     set_source(config["source"])
+
+    cc_state = config["state_file"].replace(".json", "-ccusage.json") if config["state_file"] else ""
+    codex_state = config["state_file"].replace(".json", "-codex.json") if config["state_file"] else ""
+    counter_state_file = config["state_file"].replace(".json", "-counters.json") if config["state_file"] else ""
+
+    if counter_state_file:
+        state = load_state(counter_state_file)
+        if state:
+            restore_state(state)
+            logger.info("Restored counter state from %s", counter_state_file)
+        else:
+            bootstrap = _bootstrap_from_last_totals(
+                [p for p in (cc_state, codex_state) if p], config["source"]
+            )
+            if bootstrap["cumulative"] or bootstrap["daily"]:
+                restore_state(bootstrap)
+                logger.info("Bootstrapped counter state from last_totals files")
 
     pricing_rates = pricing.load_pricing(
         override_path=config["pricing_override"],
@@ -52,7 +137,6 @@ def main():
     collectors = []
 
     if config["claude_dirs"]:
-        cc_state = config["state_file"].replace(".json", "-ccusage.json") if config["state_file"] else ""
         cc_collector = CcusageCollector(
             claude_dirs=config["claude_dirs"],
             days_back=config["days_back"],
@@ -66,7 +150,6 @@ def main():
         collectors.append(cc_collector)
 
     if config["codex_dirs"]:
-        codex_state = config["state_file"].replace(".json", "-codex.json") if config["state_file"] else ""
         codex_collector = CodexCollector(
             codex_dirs=config["codex_dirs"],
             days_back=config["days_back"],
@@ -80,6 +163,9 @@ def main():
         logger.info("Codex scan complete")
         collectors.append(codex_collector)
 
+    if counter_state_file:
+        save_state(counter_state_file)
+
     start_http_server(config["listen_port"])
     logger.info("Prometheus metrics on :%d/metrics", config["listen_port"])
 
@@ -88,8 +174,10 @@ def main():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     logger.info("Health endpoint on :%d/health", health_port)
 
+    _install_shutdown_handlers(counter_state_file)
+
     logger.info("Watching for updates every %ds...", config["watch_interval"])
-    poll_loop(collectors, config["watch_interval"])
+    poll_loop(collectors, config["watch_interval"], counter_state_file)
 
     threading.Event().wait()
 

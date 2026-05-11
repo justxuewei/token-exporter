@@ -1,6 +1,8 @@
+import json
 import logging
+import os
 from collections import defaultdict
-from datetime import datetime, timezone
+from pathlib import Path
 
 from prometheus_client import Counter, Gauge
 
@@ -21,7 +23,15 @@ daily_cache_creation_tokens = Gauge("codeagent_daily_cache_creation_tokens", "Da
 daily_cache_read_tokens = Gauge("codeagent_daily_cache_read_tokens", "Daily cache read tokens", DAILY_LABELS)
 daily_cost_usd = Gauge("codeagent_daily_cost_usd", "Daily cost USD", DAILY_LABELS)
 
-_daily_data: dict[tuple, float] = defaultdict(lambda: {"input": 0.0, "output": 0.0, "cache_creation": 0.0, "cache_read": 0.0, "cost": 0.0})
+_FIELDS = ("input", "output", "cache_creation", "cache_read", "cost")
+
+
+def _zero_values() -> dict[str, float]:
+    return {f: 0.0 for f in _FIELDS}
+
+
+_cumulative_totals: dict[tuple, dict[str, float]] = defaultdict(_zero_values)
+_daily_data: dict[tuple, dict[str, float]] = defaultdict(_zero_values)
 
 _source: str = ""
 
@@ -31,33 +41,113 @@ def set_source(source: str):
     _source = source
 
 
+def _apply_counters(src: str, agent: str, project: str, model: str, values: dict[str, float]) -> None:
+    if values.get("input", 0) > 0:
+        input_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(values["input"])
+    if values.get("output", 0) > 0:
+        output_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(values["output"])
+    if values.get("cache_creation", 0) > 0:
+        cache_creation_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(values["cache_creation"])
+    if values.get("cache_read", 0) > 0:
+        cache_read_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(values["cache_read"])
+    if values.get("cost", 0) > 0:
+        cost_usd_total.labels(source=src, agent=agent, project=project, model=model).inc(values["cost"])
+
+
+def _apply_daily(src: str, agent: str, project: str, model: str, date_str: str, values: dict[str, float]) -> None:
+    daily_input_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(values.get("input", 0))
+    daily_output_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(values.get("output", 0))
+    daily_cache_creation_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(values.get("cache_creation", 0))
+    daily_cache_read_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(values.get("cache_read", 0))
+    daily_cost_usd.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(values.get("cost", 0))
+
+
 def record_usage(agent: str, rec: dict):
     model = rec["model"]
     project = rec.get("project", "unknown")
     src = _source
-    input_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["input_tokens"])
-    output_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["output_tokens"])
-    if rec["cache_creation_tokens"] > 0:
-        cache_creation_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cache_creation_tokens"])
-    if rec["cache_read_tokens"] > 0:
-        cache_read_tokens_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cache_read_tokens"])
-    if rec["cost_usd"] > 0:
-        cost_usd_total.labels(source=src, agent=agent, project=project, model=model).inc(rec["cost_usd"])
 
-    # Accumulate daily gauge data
+    delta = {
+        "input": rec["input_tokens"],
+        "output": rec["output_tokens"],
+        "cache_creation": rec["cache_creation_tokens"],
+        "cache_read": rec["cache_read_tokens"],
+        "cost": rec["cost_usd"],
+    }
+
+    _apply_counters(src, agent, project, model, delta)
+
+    cum_key = (src, agent, project, model)
+    cum = _cumulative_totals[cum_key]
+    for f in _FIELDS:
+        cum[f] += delta[f]
+
     ts = rec.get("timestamp")
     date_str = ts.strftime("%Y-%m-%d") if ts else "unknown"
-    key = (src, agent, project, model, date_str)
-    d = _daily_data[key]
-    d["input"] += rec["input_tokens"]
-    d["output"] += rec["output_tokens"]
-    d["cache_creation"] += rec["cache_creation_tokens"]
-    d["cache_read"] += rec["cache_read_tokens"]
-    d["cost"] += rec["cost_usd"]
+    d_key = (src, agent, project, model, date_str)
+    d = _daily_data[d_key]
+    for f in _FIELDS:
+        d[f] += delta[f]
+    _apply_daily(src, agent, project, model, date_str, d)
 
-    # Update daily gauges
-    daily_input_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["input"])
-    daily_output_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["output"])
-    daily_cache_creation_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cache_creation"])
-    daily_cache_read_tokens.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cache_read"])
-    daily_cost_usd.labels(source=src, agent=agent, project=project, model=model, date=date_str).set(d["cost"])
+
+def snapshot_state() -> dict:
+    return {
+        "schema_version": 1,
+        "cumulative": [{"key": list(k), "values": dict(v)} for k, v in _cumulative_totals.items()],
+        "daily": [{"key": list(k), "values": dict(v)} for k, v in _daily_data.items()],
+    }
+
+
+def restore_state(state: dict) -> None:
+    """Seed counters/gauges and in-memory accumulators from a saved snapshot.
+
+    Must be called BEFORE the HTTP server starts and before any record_usage
+    call, otherwise restored values are added on top of fresh deltas.
+    """
+    if not state:
+        return
+    restored_counters = 0
+    restored_daily = 0
+    for entry in state.get("cumulative", []):
+        key = tuple(entry.get("key", []))
+        if len(key) != 4:
+            continue
+        src, agent, project, model = key
+        values = entry.get("values", {})
+        _apply_counters(src, agent, project, model, values)
+        _cumulative_totals[key] = {f: float(values.get(f, 0)) for f in _FIELDS}
+        restored_counters += 1
+    for entry in state.get("daily", []):
+        key = tuple(entry.get("key", []))
+        if len(key) != 5:
+            continue
+        src, agent, project, model, date_str = key
+        values = entry.get("values", {})
+        _apply_daily(src, agent, project, model, date_str, values)
+        _daily_data[key] = {f: float(values.get(f, 0)) for f in _FIELDS}
+        restored_daily += 1
+    logger.info("Restored %d counter series and %d daily series", restored_counters, restored_daily)
+
+
+def load_state(path: str) -> dict:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Could not load metrics state from %s: %s", path, e)
+        return {}
+
+
+def save_state(path: str) -> None:
+    state_path = Path(path)
+    tmp_path = state_path.with_name(f"{state_path.name}.tmp")
+    try:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(tmp_path, "w") as f:
+            json.dump(snapshot_state(), f, separators=(",", ":"), sort_keys=True)
+        os.replace(tmp_path, state_path)
+    except OSError as e:
+        logger.error("Could not save metrics state to %s: %s", path, e)
