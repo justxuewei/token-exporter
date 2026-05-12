@@ -286,6 +286,7 @@
       "targets": [
         {
           "expr": "sort_desc((clamp_min((sum by (model) (last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (model) (last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (model) (last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (model) (last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (model) (last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (model) (last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (model) (last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (model) (last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (model) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0)) > 0)",
+          "instant": true,
           "legendFormat": "{{model}}",
           "refId": "A"
         }
@@ -312,6 +313,7 @@
       "targets": [
         {
           "expr": "sort_desc((clamp_min((sum by (agent) (last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (agent) (last_over_time(codeagent_input_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (agent) (last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (agent) (last_over_time(codeagent_output_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (agent) (last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (agent) (last_over_time(codeagent_cache_read_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0) + clamp_min((sum by (agent) (last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range])) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})) - (sum by (agent) (last_over_time(codeagent_cache_creation_tokens_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (agent) ({__name__=~\"codeagent_(input|output|cache_read|cache_creation)_tokens_total\", source=\"$source\"})), 0)) > 0)",
+          "instant": true,
           "legendFormat": "{{agent}}",
           "refId": "A"
         }
@@ -338,6 +340,7 @@
       "targets": [
         {
           "expr": "sort_desc(clamp_min((sum by (model) (last_over_time(codeagent_cost_usd_total{source=\"$source\"}[$__range])) or 0 * sum by (model) (codeagent_cost_usd_total{source=\"$source\"})) - (sum by (model) (last_over_time(codeagent_cost_usd_total{source=\"$source\"}[$__range] offset $__range)) or 0 * sum by (model) (codeagent_cost_usd_total{source=\"$source\"})), 0) > 0)",
+          "instant": true,
           "legendFormat": "{{model}}",
           "refId": "A"
         }
