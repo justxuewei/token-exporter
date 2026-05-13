@@ -377,7 +377,7 @@
       {
         "auto": true,
         "auto_count": 48,
-        "auto_min": "1m",
+        "auto_min": "15s",
         "current": {
           "selected": true,
           "text": "auto",
@@ -391,6 +391,16 @@
             "selected": true,
             "text": "auto",
             "value": "$__auto_interval_usage_bucket"
+          },
+          {
+            "selected": false,
+            "text": "15s",
+            "value": "15s"
+          },
+          {
+            "selected": false,
+            "text": "30s",
+            "value": "30s"
           },
           {
             "selected": false,
@@ -413,7 +423,7 @@
             "value": "1h"
           }
         ],
-        "query": "1m,5m,15m,1h",
+        "query": "15s,30s,1m,5m,15m,1h",
         "refresh": 2,
         "skipUrlSync": false,
         "type": "interval"
